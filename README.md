@@ -149,6 +149,11 @@ dotnet publish PiWebKeeper/PiWebKeeper.csproj -c Release -r win-x64 --self-conta
 
 `publish/win-x64/` 目录中只跟踪可执行文件与 `settings.json`，`.pdb` 调试符号文件由该目录下的 `.gitignore` 排除。
 
+## 感谢
+
+- [pi-web](https://github.com/agegr/pi-web)
+- [pi](https://github.com/earendil-works/pi)
+
 ## 许可证
 
 本项目使用 MIT 许可证，许可证全文见 [LICENCE](LICENCE)。
