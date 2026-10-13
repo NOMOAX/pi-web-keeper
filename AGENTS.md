@@ -1,8 +1,10 @@
-# PiWebKeeper
+# Pi Web Keeper
 
 A WPF (.NET 10, `net10.0-windows`) launcher that owns exactly one local WebUI service: it starts the service, waits for its port, opens the installed PWA in its own window, and takes everything down when the launcher window closes. It also carries a button that updates Pi itself.
 
-The shipped artifact is a single self-contained file: `dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true`. `IncludeNativeLibrariesForSelfExtract` is the flag that matters — without it WPF's native DLLs stay loose beside a 131 MB exe instead of bundling into ~64 MB. Publishing into `publish/win-x64` fails with `MSB4018` while an exe from that directory is still running, so close the launcher before publishing.
+The shipped artifact is a single self-contained file: `dotnet publish PiWebKeeper/PiWebKeeper.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o publish/win-x64`. `IncludeNativeLibrariesForSelfExtract` is the flag that matters — without it WPF's native DLLs stay loose beside a 131 MB exe instead of bundling into ~64 MB. Publishing into `publish/win-x64` fails with `MSB4018` while an exe from that directory is still running, so close the launcher before publishing.
+
+That directory is tracked, not ignored: `publish/win-x64/PiWebKeeper.exe` and its `settings.json` are committed and only `*.pdb` is ignored, so every republish adds another ~62 MB blob to the history of this repo and its private GitHub remote `NOMOAX/pi-web-keeper`.
 
 ## The lifecycle contract
 
@@ -22,10 +24,13 @@ Four mechanisms carry the contract, and each is fragile in a way that is not obv
 - Comments and XML docs are Chinese, matching the rest of the repo. XML docs carry the *why*; keep that split when you add any.
 - `settings.json` describes one service and is copied next to the exe. Hosting a second service means a second install directory, not a second entry here. The display name is not in it: it is the window `Title` in `MainWindow.xaml`.
 - Await with `ConfigureAwait(false)` outside the UI thread; `MainWindow` is the only place that resumes on the dispatcher.
+- Commit messages are Conventional Commits — an English subject (`docs:`, `feat(ui):`, `refactor(config):`, `style(ui):`, `chore:`) — followed by a body of prose saying why the change is wanted, not what it does.
 
 ## The window
 
-Both buttons — the service button (`启动`/`停止`) and the update button — sit on one row inside a `WrapPanel`, which is a fallback rather than the layout strategy: the window is pinned to 640x480 DIP (`Width`/`MinWidth` and `Height`/`MinHeight` in `MainWindow.xaml`). The row is far narrower than 640, so wrapping never happens; the 480 is what the log panel gets below the row. The width is a literal because the window used to be measured from the row, and once the row shrank to two buttons that measurement came out too narrow to read the log against.
+Both buttons — the service button (`启动`/`停止`) and the update button — sit on one row inside a `WrapPanel`, which is a fallback rather than the layout strategy: the window is pinned to 640x480 DIP (`Width`/`MinWidth` and `Height`/`MinHeight` in `MainWindow.xaml`). The row is far narrower than 640, so wrapping never happens; the 480 is what the log panel gets below the row. The width is a literal because the window used to be measured from the row, and once the row shrank to two buttons that measurement came out too narrow to read the log against. Both buttons are a fixed 80x40 DIP (`Width`/`Height`; no `MinWidth`, no `Padding`), a size the user chose by eye from screenshots — the literal is the decision, not a value to re-derive.
+
+The log panel is the bare read-only `LogBox`: no container, no header, its own TextBox border being the edge of the panel, because an outer `GroupBox` only wrapped another ring of space around it. Its font is hardcoded `NSimSun` at `FontSize="12"` with `TextOptions.TextFormattingMode="Display"` rather than taken from the system theme: WPF draws outlines only and so ignores SimSun's embedded small-size bitmaps that GDI consumes, the user judged everything below 12 DIP blurry for this mixed Chinese and monospace text, and `FontSize` is DIP, so a smaller number does not help at high display scaling either.
 
 `WindowStartupLocation` is `CenterScreen`, which is correct here precisely because nothing resizes the window after it is created. Measured on this machine: centered on the work area to within 0 DIP.
 
@@ -34,10 +39,10 @@ The maximize box is removed by clearing `WS_MAXIMIZEBOX` in `SourceInitialized`,
 ## The update button
 
 The button right of the service button is not part of the service contract and is not configurable — its commands are hardcoded in `MainWindow.RunUpdateAsync`. It updates Pi itself, not the service `settings.json` describes.
-- One button runs both packages' own updaters, `pi update --all` then `pi-web update`, stopping at the first non-zero exit: what the user wants is Pi up to date, not a choice between two packages. Not a copy of the `.cmd` quick-launchers the user may keep at hand — those end with `-NoExit` and would never return, and what a button needs is a command that ends.
+- One button runs both packages' own updaters, `pi update --all` then `pi-web update`, stopping at the first non-zero exit: what the user wants is Pi up to date, not a choice between two packages.
 - An update never touches the service. It does not stop it to free the files npm is about to replace, and it does not restart anything afterwards.
 - The update button is disabled while the port is listening. The running service is exactly what holds those files (npm reports `EBUSY rename` against them), so an update is only offered when the launcher does not have the service up. The tooltip states the reason. That is one layer, not the only one: `pi-web update` refuses on its own when it finds a running pi-web server in its run records. The two layers disagree about the evidence — here it is the port, there it is a record file — which is the point: each catches what the other misses.
-- An update doubles as the version check: each updater reports for itself that it was already current, so there is no separate check button and no output of theirs to parse.
+- An update doubles as the version check: each updater reports for itself that it was already current.
 - Close handles the service it owns and nothing else: no waiting for, and no cancelling of, a start or an update still in flight. The user is expected to let those finish, so neither path needs machinery at close time — the update is not cancellable at all, since a half-replaced npm package is worse than a slow update.
 
 ## Verifying a change
@@ -46,9 +51,9 @@ There is no test project, and there cannot usefully be one for the process, port
 
 Two techniques that work here:
 
-- Drive the real window with UI Automation: find the window by PID, `InvokePattern.Invoke()` a button by name, then read the log panel back through `ValuePattern`. This catches wiring bugs that reading the code does not — the button index capture bug (a `for` loop variable closed over by every handler) only showed up this way.
+- Drive the real window with UI Automation: find the window by PID, `InvokePattern.Invoke()` a button by name, then read the log panel back through `ValuePattern`. This catches wiring bugs that reading the code does not.
 - Point `settings.json` at a throwaway command (`node` listening on a spare port) and copy the published exe somewhere disposable. That exercises start, readiness, and stop without touching the user's real service on port 30141.
 
 Set `"AppUserModelId": ""` in a test config to skip opening the PWA window.
 
-The user's live install is `~\Tools\Pi Web Keeper`, outside the repo. Replacing the exe there needs the launcher closed — a running exe is locked — and its `settings.json` is the user's own and must be left alone.
+The user's live install is `~/Tools/Pi Web Keeper`, outside the repo. Replacing the exe there needs the launcher closed — a running exe is locked — and its `settings.json` is the user's own and must be left alone.
