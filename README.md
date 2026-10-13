@@ -1,6 +1,8 @@
 > [!WARNING]
 > **此项目只支持 Windows 系统。**
 
+![Pi Web Keeper 的窗口](docs/launcher-window.png)
+
 # Pi Web Keeper
 
 Pi Web Keeper 是一个负责托管 **一个**本地 Pi Web 服务的 Windows 桌面启动器。
