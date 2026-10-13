@@ -148,3 +148,7 @@ dotnet publish PiWebKeeper/PiWebKeeper.csproj -c Release -r win-x64 --self-conta
 `IncludeNativeLibrariesForSelfExtract` 是其中最关键的一个参数：缺少它，WPF 需要的原生 DLL 会散落在可执行文件旁边，整个目录约为 131 MB；加上它之后，得到的才是单个约 62 MB 的可执行文件。
 
 `publish/win-x64/` 目录中只跟踪可执行文件与 `settings.json`，`.pdb` 调试符号文件由该目录下的 `.gitignore` 排除。
+
+## 许可证
+
+本项目使用 MIT 许可证，许可证全文见 [LICENCE](LICENCE)。
