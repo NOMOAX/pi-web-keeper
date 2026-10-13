@@ -158,4 +158,4 @@ dotnet publish PiWebKeeper/PiWebKeeper.csproj -c Release -r win-x64 --self-conta
 
 ## 许可证
 
-本项目使用 MIT 许可证，许可证全文见 [LICENCE](LICENCE)。
+本项目使用 MIT 许可证，许可证全文见 [LICENSE](LICENSE)。
