@@ -4,7 +4,7 @@ A WPF (.NET 10, `net10.0-windows`) launcher that owns exactly one local WebUI se
 
 The shipped artifact is a single self-contained file: `dotnet publish PiWebKeeper/PiWebKeeper.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o publish/win-x64`. `IncludeNativeLibrariesForSelfExtract` is the flag that matters — without it WPF's native DLLs stay loose beside a 131 MB exe instead of bundling into ~64 MB. Publishing into `publish/win-x64` fails with `MSB4018` while an exe from that directory is still running, so close the launcher before publishing.
 
-That directory is tracked, not ignored: `publish/win-x64/PiWebKeeper.exe` and its `settings.json` are committed and only `*.pdb` is ignored, so every republish adds another ~62 MB blob to the history of this repo and its private GitHub remote `NOMOAX/pi-web-keeper`.
+`publish/` is build output: it is ignored, and nothing under it is committed, so republishing no longer costs this repository a ~62 MB blob per version. Users get the exe from the GitHub release for that version — a zip holding `PiWebKeeper.exe` and a sample `settings.json` — and the same exe is what the live install at `~/Tools/Pi Web Keeper` is updated with. A release carries a `v`-prefixed version as its tag, the tag being made by the release rather than by hand (`gh release create v0.1.0 <zip> --title v0.1.0 --notes-file <notes>`).
 
 ## The lifecycle contract
 

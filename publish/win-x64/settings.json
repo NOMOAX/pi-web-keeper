@@ -1,8 +1,0 @@
-{
-  "Host": "127.0.0.1",
-  "Port": 30141,
-  "AppUserModelId": "127.0.0.1-34C534B4_x57ssgwjdvp94!App",
-  "WaitSeconds": 5,
-  "ReadyDelaySeconds": 0,
-  "StartCommand": "pi-web --no-open"
-}

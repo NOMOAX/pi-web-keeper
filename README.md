@@ -20,7 +20,7 @@ Pi Web Keeper 是一个负责托管 **一个**本地 Pi Web 服务的 Windows �
 - 服务在跑，启动器就不会走：最小化窗口、点关闭按钮都只是把它收进系统托盘；真正结束这一切的是托盘菜单里的 `退出`，它会先停服务再退出；
 - 另外提供一个更新按钮，用来把 Pi 本身更新到最新版本，依次执行 `pi update --all` 与 `pi-web update`。
 
-仓库中的 `publish/win-x64/PiWebKeeper.exe` 就是一份可以直接运行的程序。
+可执行文件从[最新发布](https://github.com/NOMOAX/pi-web-keeper/releases/latest)下载：压缩包里是 `PiWebKeeper.exe` 和一个示例 `settings.json`，两个文件放进同一个目录就能用。
 
 ## 快速开始
 
@@ -72,9 +72,9 @@ Pi Web Keeper 是一个负责托管 **一个**本地 Pi Web 服务的 Windows �
 
 6. 准备安装目录
 
-    - 新建一个目录（放在哪里都可以），把下面两个文件粘贴进去：
-    - `PiWebKeeper.exe`：可以使用仓库中 `publish/win-x64/PiWebKeeper.exe` 这一份，也可以自行构建；
-    - `settings.json`：可以从仓库中复制一份，然后把 `AppUserModelId` 换成上一步查到的值；`StartCommand` 保持默认的 `pi-web --no-open` 即可，不需要修改。
+    - 从[最新发布](https://github.com/NOMOAX/pi-web-keeper/releases/latest)下载压缩包（`PiWebKeeper-<版本号>-win-x64.zip`），里面就是 `PiWebKeeper.exe` 与 `settings.json` 两个文件。
+    - 新建一个目录（放在哪里都可以），把这两个文件放进去。
+    - 把 `settings.json` 里的 `AppUserModelId` 换成上一步查到的值。
     - 一个目录对应一个被托管的服务。如果要托管第二个服务，请另外新建一个目录。
 
 7. 启动
@@ -168,8 +168,6 @@ dotnet publish PiWebKeeper/PiWebKeeper.csproj -c Release -r win-x64 --self-conta
 ```
 
 `IncludeNativeLibrariesForSelfExtract` 是其中最关键的一个参数：缺少它，WPF 需要的原生 DLL 会散落在可执行文件旁边，整个目录约为 131 MB；加上它之后，得到的才是单个约 62 MB 的可执行文件。
-
-`publish/win-x64/` 目录中只跟踪可执行文件与 `settings.json`，`.pdb` 调试符号文件由该目录下的 `.gitignore` 排除。
 
 ## 感谢
 
