@@ -13,7 +13,9 @@ public static class AppWindowCloser
 {
     private const uint WindowMessageClose = 0x0010;
 
-    // PROPVARIANT 的 vt 取值：VT_LPWSTR(31)，表示联合体里是一个 UTF-16 字符串指针
+    /// <summary>
+    /// PROPVARIANT 的 vt 取值：VT_LPWSTR(31)，表示联合体里是一个 UTF-16 字符串指针。
+    /// </summary>
     private const ushort VariantTypeUtf16String = 31;
 
     private const string ChromiumWindowClass = "Chrome_WidgetWin_1";
@@ -34,7 +36,9 @@ public static class AppWindowCloser
         public uint PropertyId;
     }
 
-    // PROPVARIANT 在 x64 上是 24 字节：vt 在偏移 0，联合体在偏移 8
+    /// <summary>
+    /// PROPVARIANT 在 x64 上是 24 字节：vt 在偏移 0，联合体在偏移 8。
+    /// </summary>
     [StructLayout(LayoutKind.Explicit)]
     private struct PropVariant
     {

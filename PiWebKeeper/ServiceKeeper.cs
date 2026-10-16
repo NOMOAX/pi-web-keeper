@@ -1,4 +1,4 @@
-﻿using System.ComponentModel;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
@@ -11,27 +11,24 @@ namespace PiWebKeeper;
 /// 生命周期契约：启动器存活期间服务就存活，启动器关闭时服务必须被终止。
 /// 「关闭启动器就是停止服务」是整个程序的核心语义。
 /// </summary>
-public sealed class ServiceKeeper
+public sealed class ServiceKeeper(KeeperConfig config)
 {
     private static readonly TimeSpan PortReleaseTimeout = TimeSpan.FromSeconds(10);
 
     private static readonly TimeSpan ProcessExitTimeout = TimeSpan.FromSeconds(5);
 
-    private readonly KeeperConfig _config;
-
     private readonly Lock _gate = new();
 
     private Process? _process;
 
-    public ServiceKeeper(KeeperConfig config)
-    {
-        _config = config;
-    }
-
-    /// <summary>输出一行日志（供界面显示）。</summary>
+    /// <summary>
+    /// 输出一行日志（供界面显示）。
+    /// </summary>
     public event Action<string>? LogReceived;
 
-    /// <summary>运行状态变化（供界面显示）。</summary>
+    /// <summary>
+    /// 运行状态变化（供界面显示）。
+    /// </summary>
     public event Action<string>? StateChanged;
 
     public bool IsRunning
@@ -49,7 +46,7 @@ public sealed class ServiceKeeper
     /// 端口上是否有服务在监听。与 <see cref="IsRunning"/> 不同：
     /// 服务可能是启动器之外拉起来的，此时进程不由我们持有，但端口是活的。
     /// </summary>
-    public bool IsPortListening => PortProbe.IsListening(_config.Port);
+    public bool IsPortListening => PortProbe.IsListening(config.Port);
 
     /// <summary>
     /// 启动服务。
@@ -65,18 +62,18 @@ public sealed class ServiceKeeper
         await StopAsync(CancellationToken.None).ConfigureAwait(false);
 
         SetState("正在启动服务…");
-        StartProcess();
-        await WaitUntilReadyAsync(CancellationToken.None).ConfigureAwait(false);
+        var process = StartProcess();
+        await WaitUntilReadyAsync(process, CancellationToken.None).ConfigureAwait(false);
 
-        if (_config.ReadyDelaySeconds > 0)
+        if (config.ReadyDelaySeconds > 0)
         {
-            SetState($"等待服务加载（{_config.ReadyDelaySeconds:0.#} 秒）…");
-            Log($"端口已就绪，额外等待 {_config.ReadyDelaySeconds:0.#} 秒（部分服务就绪后还要加载插件）。");
-            await Task.Delay(TimeSpan.FromSeconds(_config.ReadyDelaySeconds)).ConfigureAwait(false);
+            SetState($"等待服务加载（{config.ReadyDelaySeconds:0.#} 秒）…");
+            Log($"端口已就绪，额外等待 {config.ReadyDelaySeconds:0.#} 秒（部分服务就绪后还要加载插件）。");
+            await Task.Delay(TimeSpan.FromSeconds(config.ReadyDelaySeconds)).ConfigureAwait(false);
         }
 
         OpenAppWindow();
-        SetState($"运行中（{_config.Host}:{_config.Port}）");
+        SetState($"运行中（{config.Host}:{config.Port}）");
     }
 
     /// <summary>
@@ -90,14 +87,14 @@ public sealed class ServiceKeeper
         CloseAppWindowIfAny();
         KillProcessTree();
 
-        if (!PortProbe.IsListening(_config.Port))
+        if (!PortProbe.IsListening(config.Port))
         {
             return;
         }
 
         SetState("等待端口释放…");
         var released = await PortProbe.WaitForStateAsync(
-                                          _config.Port,
+                                          config.Port,
                                           shouldBeListening: false,
                                           PortReleaseTimeout,
                                           cancellationToken
@@ -110,14 +107,14 @@ public sealed class ServiceKeeper
         }
 
         // 兜底：树杀没有覆盖到的进程（例如服务是启动器之外拉起来的，或残留的孤儿子进程）
-        Log($"端口 {_config.Port} 仍被占用，尝试终止占用进程。");
-        foreach (var processId in PortProbe.FindOwningProcessIds(_config.Port))
+        Log($"端口 {config.Port} 仍被占用，尝试终止占用进程。");
+        foreach (var processId in PortProbe.FindOwningProcessIds(config.Port))
         {
             TryKillProcessById(processId, killTree: true);
         }
 
         released = await PortProbe.WaitForStateAsync(
-                                      _config.Port,
+                                      config.Port,
                                       shouldBeListening: false,
                                       PortReleaseTimeout,
                                       cancellationToken
@@ -126,14 +123,14 @@ public sealed class ServiceKeeper
 
         if (!released)
         {
-            Log($"警告：端口 {_config.Port} 仍未释放，下次启动可能会失败。");
+            Log($"警告：端口 {config.Port} 仍未释放，下次启动可能会失败。");
         }
     }
 
-    private void StartProcess()
+    private Process StartProcess()
     {
         // 通过 cmd.exe 执行，才能解析 PATH 上的 npm 全局命令（pi-web / dsh 都是 .cmd shim）
-        var startInfo = new ProcessStartInfo("cmd.exe", $"/c {_config.StartCommand}")
+        var startInfo = new ProcessStartInfo("cmd.exe", $"/c {config.StartCommand}")
         {
             UseShellExecute        = false,
             CreateNoWindow         = true,
@@ -191,7 +188,10 @@ public sealed class ServiceKeeper
             _process = process;
         }
 
-        Log($"服务已启动（pid {process.Id}）：{_config.StartCommand}");
+        Log($"服务已启动（pid {process.Id}）：{config.StartCommand}");
+
+        // 把进程交给调用方：等就绪的时候还要盯着它 —— 见 WaitUntilReadyAsync
+        return process;
     }
 
     /// <summary>
@@ -204,31 +204,51 @@ public sealed class ServiceKeeper
         return Directory.Exists(profileDirectory) ? profileDirectory : AppContext.BaseDirectory;
     }
 
-    private async Task WaitUntilReadyAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// 等端口就绪，或者等来一个坏消息。
+    ///
+    /// 两种情况都算结束：端口开了，或者进程自己退出了。
+    /// 第二种必须算结束而不是继续等 —— 进程都没了，端口不会自己长出来，
+    /// 而用户要对着“超时”那句等满整个 WaitSeconds，日志里明明早就写着服务退出了。
+    /// 超时那句话留给“进程还活着、只是还没就绪”的服务。
+    /// </summary>
+    private async Task WaitUntilReadyAsync(Process process, CancellationToken cancellationToken)
     {
-        SetState($"等待服务就绪（最多 {_config.WaitSeconds:0.#} 秒）…");
+        SetState($"等待服务就绪（最多 {config.WaitSeconds:0.#} 秒）…");
 
-        var ready = await PortProbe.WaitForStateAsync(
-                                       _config.Port,
-                                       shouldBeListening: true,
-                                       TimeSpan.FromSeconds(_config.WaitSeconds),
-                                       cancellationToken
-                                   )
-                                   .ConfigureAwait(false);
+        var ready = PortProbe.WaitForStateAsync(
+            config.Port,
+            shouldBeListening: true,
+            TimeSpan.FromSeconds(config.WaitSeconds),
+            cancellationToken
+        );
+        var exited = process.WaitForExitAsync(cancellationToken);
 
-        if (!ready)
+        /*
+         * 输掉的那一条不再有人 await：它们都不会抛给别人（取消那个参数这里传的是
+         * CancellationToken.None），端口那条照自己的超时跑完（最多 WaitSeconds），
+         * 进程那条等到进程真的退出为止。
+         */
+        if (await Task.WhenAny(ready, exited).ConfigureAwait(false) == exited)
         {
-            throw new TimeoutException(
-                $"等待 {_config.Host}:{_config.Port} 就绪超时（{_config.WaitSeconds:0.#} 秒）。请查看日志确认服务是否启动失败。"
+            throw new InvalidOperationException(
+                $"服务进程启动后立刻退出了（退出码 {TryGetExitCode(process)}），端口 {config.Port} 没有打开。上面的输出就是它退出前说的话。"
             );
         }
 
-        Log($"端口 {_config.Port} 已就绪。");
+        if (!await ready.ConfigureAwait(false))
+        {
+            throw new TimeoutException(
+                $"等待 {config.Host}:{config.Port} 就绪超时（{config.WaitSeconds:0.#} 秒）。请查看日志确认服务是否启动失败。"
+            );
+        }
+
+        Log($"端口 {config.Port} 已就绪。");
     }
 
     private void OpenAppWindow()
     {
-        if (string.IsNullOrWhiteSpace(_config.AppUserModelId))
+        if (string.IsNullOrWhiteSpace(config.AppUserModelId))
         {
             Log("未配置 AppUserModelId，跳过打开应用窗口。");
             return;
@@ -238,7 +258,7 @@ public sealed class ServiceKeeper
         {
             // 用 explorer 拉起已安装的 PWA，这样才会得到独立的 Web 应用窗口
             Process.Start(
-                new ProcessStartInfo("explorer.exe", $@"shell:AppsFolder\{_config.AppUserModelId}")
+                new ProcessStartInfo("explorer.exe", $@"shell:AppsFolder\{config.AppUserModelId}")
                 {
                     UseShellExecute = true
                 }
@@ -253,12 +273,12 @@ public sealed class ServiceKeeper
 
     private void CloseAppWindowIfAny()
     {
-        if (string.IsNullOrWhiteSpace(_config.AppUserModelId))
+        if (string.IsNullOrWhiteSpace(config.AppUserModelId))
         {
             return;
         }
 
-        var closed = AppWindowCloser.CloseWindows(_config.AppUserModelId);
+        var closed = AppWindowCloser.CloseWindows(config.AppUserModelId);
         if (closed > 0)
         {
             Log($"已关闭 {closed} 个应用窗口。");

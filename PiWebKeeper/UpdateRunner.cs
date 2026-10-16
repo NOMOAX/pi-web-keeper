@@ -19,9 +19,7 @@ public static class UpdateRunner
     /// stdin 主动关闭：命令若企图等待输入，会立刻读到 EOF 而不是把窗口挂死。
     /// </summary>
     /// <returns>进程退出码。</returns>
-    public static async Task<int> RunStreamingAsync(
-        string         command,
-        Action<string> onOutput)
+    public static async Task<int> RunStreamingAsync(string command, Action<string> onOutput)
     {
         using var process = CreateProcess(command);
 

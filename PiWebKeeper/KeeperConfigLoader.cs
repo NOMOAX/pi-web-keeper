@@ -8,7 +8,9 @@ public static class KeeperConfigLoader
 {
     private const string FileName = "settings.json";
 
-    /// <summary>配置文件与 exe 同目录。</summary>
+    /// <summary>
+    /// 配置文件与 exe 同目录。
+    /// </summary>
     public static string ConfigPath => Path.Combine(AppContext.BaseDirectory, FileName);
 
     private static readonly JsonSerializerOptions Options = new()

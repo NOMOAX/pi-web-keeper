@@ -10,21 +10,33 @@ namespace PiWebKeeper;
 /// </summary>
 public sealed class KeeperConfig
 {
-    /// <summary>服务监听主机，例如 "127.0.0.1"。</summary>
+    /// <summary>
+    /// 服务监听主机，例如 "127.0.0.1"。
+    /// </summary>
     public string Host { get; init; } = "127.0.0.1";
 
-    /// <summary>服务监听端口，用于判断就绪与否。</summary>
+    /// <summary>
+    /// 服务监听端口，用于判断就绪与否。
+    /// </summary>
     public int Port { get; init; }
 
-    /// <summary>Web 应用窗口的 AppUserModelID，用于精确关闭该应用的窗口。</summary>
+    /// <summary>
+    /// Web 应用窗口的 AppUserModelID，用于精确关闭该应用的窗口。
+    /// </summary>
     public string AppUserModelId { get; init; } = string.Empty;
 
-    /// <summary>启动服务后，等待端口就绪的最长秒数。</summary>
+    /// <summary>
+    /// 启动服务后，等待端口就绪的最长秒数。
+    /// </summary>
     public double WaitSeconds { get; init; } = 10;
 
-    /// <summary>端口就绪后额外等待的秒数（有些服务就绪后还要加载插件）。</summary>
+    /// <summary>
+    /// 端口就绪后额外等待的秒数（有些服务就绪后还要加载插件）。
+    /// </summary>
     public double ReadyDelaySeconds { get; init; }
 
-    /// <summary>启动服务的命令行，例如 "pi-web --no-open"。</summary>
+    /// <summary>
+    /// 启动服务的命令行，例如 "pi-web --no-open"。
+    /// </summary>
     public string StartCommand { get; init; } = string.Empty;
 }

@@ -2,6 +2,8 @@ using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Interop;
 
 namespace PiWebKeeper;
@@ -9,19 +11,58 @@ namespace PiWebKeeper;
 /// <summary>
 /// 主窗口：一个按钮控制服务的启动 / 停止，右侧是更新按钮，下方是只读日志。
 ///
-/// 关闭窗口即停止服务 —— 窗口与服务同生命周期，这正是它存在的意义。
+/// 窗口与服务同生命周期：窗口收进托盘的时候服务继续跑，只有托盘菜单的“退出”
+/// 才会连服务一起收走。最小化与关闭对用户是同一个意思 —— 回到托盘里去。
 /// </summary>
 public partial class MainWindow
 {
     private ServiceKeeper? _keeper;
 
+    /// <summary>
+    /// 托盘图标。窗口收起来之后，它是这个程序唯一的入口。
+    /// </summary>
+    private readonly TrayIcon _trayIcon;
+
+    /// <summary>
+    /// 托盘图标的右键菜单。
+    /// </summary>
+    private readonly ContextMenu _trayMenu;
+
+    /// <summary>
+    /// 菜单里的服务项与更新项，文字与可用性跟着窗口上的按钮走（见 RefreshActionState）。
+    /// </summary>
+    private readonly MenuItem _trayServiceItem = new()
+    {
+        Header = "启动"
+    };
+
+    private readonly MenuItem _trayUpdateItem = new()
+    {
+        Header = "更新"
+    };
+
+    /// <summary>
+    /// 菜单里的“退出”。更新期间会置灰（见 RefreshActionState）。
+    /// </summary>
+    private readonly MenuItem _trayExitItem = new()
+    {
+        Header = "退出"
+    };
+
     private bool _isClosingAfterStop;
+
+    /// <summary>
+    /// 是否正在退出：窗口的“关闭”只是收进托盘，只有它为真时才真的关窗。
+    /// </summary>
+    private bool _isExiting;
 
     private bool _isBusy;
 
     private bool _isUpdating;
 
+    /// <summary>
     /// 正在进行的那次停止。只给按钮文字用：它区分“正在停止”和“正在启动”。
+    /// </summary>
     private Task? _stopTask;
 
     /// <summary>
@@ -37,9 +78,34 @@ public partial class MainWindow
 
         ApplyButtonDetails();
 
+        /*
+         * 托盘图标在构造函数里就建好，不等配置加载：配置读失败时窗口上的按钮会被禁用，
+         * 而关闭窗口又只是收进托盘，那时托盘菜单的“退出”就是唯一的出路，它得先存在。
+         */
+        _trayMenu = BuildTrayMenu();
+
+        _trayIcon               =  new TrayIcon(Title);
+        _trayIcon.LogReceived   += OnKeeperLog;
+        _trayIcon.LeftClicked   += OnTrayIconLeftClicked;
+        _trayIcon.MenuRequested += ShowTrayMenu;
+        _trayMenu.Opened        += OnTrayMenuOpened;
+
+        LoadKeeper();
+
         SourceInitialized += OnSourceInitialized;
-        Loaded            += OnLoaded;
         Closing           += OnClosing;
+        Closed            += OnClosed;
+        StateChanged      += OnWindowStateChanged;
+
+        /*
+         * 先把窗口的 handle 造出来，但不要显示它。
+         *
+         * 两件事都指望着它：托盘图标挂在主窗口的 handle 上（见 TrayIcon），
+         * 而启动流程要在窗口不露面的情况下跑完（见 StartOnLaunch）。
+         * 不在这里造出来的话，handle 要等到第一次 Show() 才有，
+         * 那时托盘图标和窗口一起出现，即使用户根本不需要窗口。
+         */
+        new WindowInteropHelper(this).EnsureHandle();
     }
 
     /// <summary>
@@ -60,7 +126,7 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// 取掉窗口的最大化按钮。
+    /// 取掉窗口的最大化按钮，并把托盘图标挂到窗口上。
     ///
     /// 放在这里（这时窗口已经建好、但还没显示）是因为改动不会被用户看到。
     /// </summary>
@@ -73,6 +139,9 @@ public partial class MainWindow
         }
 
         RemoveMaximizeBox(handle);
+
+        // 托盘的点击由这个窗口接收（见 TrayIcon），所以图标要等 handle 有了才能登记
+        _trayIcon.Attach(handle);
     }
 
     /// <summary>
@@ -84,33 +153,58 @@ public partial class MainWindow
     /// </summary>
     private static void RemoveMaximizeBox(IntPtr handle)
     {
-        var style = GetWindowLongPtr(handle, GWL_STYLE);
+        var style = GetWindowLongPtr(handle, WindowStyleIndex);
         if (style == IntPtr.Zero)
         {
             return;
         }
 
-        SetWindowLongPtr(handle, GWL_STYLE, style.ToInt64() & ~WS_MAXIMIZEBOX);
+        SetWindowLongPtr(handle, WindowStyleIndex, style.ToInt64() & ~MaximizeBoxStyle);
 
         // 改完样式要告诉系统重算非客户区，否则标题栏上的按钮不会被重画
-        SetWindowPos(handle, IntPtr.Zero, 0, 0, 0, 0, SWP_FLAGS);
+        SetWindowPos(handle, IntPtr.Zero, 0, 0, 0, 0, StyleChangeOnly);
     }
 
-    private const int GWL_STYLE = -16;
+    /// <summary>
+    /// GetWindowLongPtr 的索引：窗口样式（GWL_STYLE）。
+    /// </summary>
+    private const int WindowStyleIndex = -16;
 
-    private const long WS_MAXIMIZEBOX = 0x00010000L;
+    /// <summary>
+    /// 窗口样式里的“最大化按钮”那一位（WS_MAXIMIZEBOX）。
+    /// </summary>
+    private const long MaximizeBoxStyle = 0x00010000L;
 
-    private const uint SWP_NOSIZE = 0x0001;
+    /// <summary>
+    /// SetWindowPos 的 SWP_NOSIZE：不改窗口大小。
+    /// </summary>
+    private const uint PreserveSize = 0x0001;
 
-    private const uint SWP_NOMOVE = 0x0002;
+    /// <summary>
+    /// SetWindowPos 的 SWP_NOMOVE：不移动窗口。
+    /// </summary>
+    private const uint PreservePosition = 0x0002;
 
-    private const uint SWP_NOZORDER = 0x0004;
+    /// <summary>
+    /// SetWindowPos 的 SWP_NOZORDER：不改窗口的 Z 序。
+    /// </summary>
+    private const uint PreserveZOrder = 0x0004;
 
-    private const uint SWP_NOACTIVATE = 0x0010;
+    /// <summary>
+    /// SetWindowPos 的 SWP_NOACTIVATE：不改激活状态。
+    /// </summary>
+    private const uint PreserveActivation = 0x0010;
 
-    private const uint SWP_FRAMECHANGED = 0x0020;
+    /// <summary>
+    /// SetWindowPos 的 SWP_FRAMECHANGED：让系统按新样式重算非客户区。
+    /// </summary>
+    private const uint RedrawFrame = 0x0020;
 
-    private const uint SWP_FLAGS = SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED;
+    /// <summary>
+    /// 上面五个标志合起来：这次调用只改样式，位置、大小、Z 序、激活状态都保持原样。
+    /// </summary>
+    private const uint StyleChangeOnly =
+        PreservePosition | PreserveSize | PreserveZOrder | PreserveActivation | RedrawFrame;
 
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
     private static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int index);
@@ -128,7 +222,15 @@ public partial class MainWindow
         int    height,
         uint   flags);
 
-    private void OnLoaded(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// 读配置、建服务对象。
+    ///
+    /// 放在构造函数里而不是窗口的 Loaded 事件上：启动流程要在窗口从未显示的情况下跑完，
+    /// 那时 Loaded 不会触发（见 StartOnLaunch）。
+    ///
+    /// 读失败时两个按钮都得置灰：加载器已经在日志里写清楚了原因。
+    /// </summary>
+    private void LoadKeeper()
     {
         KeeperConfig config;
         try
@@ -137,8 +239,8 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            ServiceButton.IsEnabled = false;
             AppendLog("配置加载失败：" + ex.Message);
+            RefreshActionState();
             return;
         }
 
@@ -150,7 +252,7 @@ public partial class MainWindow
         AppendLog($"服务地址：{config.Host}:{config.Port}");
         AppendLog($"命令：{config.StartCommand}");
 
-        RefreshButtonState();
+        RefreshActionState();
     }
 
     /// <summary>
@@ -158,7 +260,14 @@ public partial class MainWindow
     /// </summary>
     private const string ServiceRunningUpdateHint = "服务运行中不执行更新：更新不会停掉正在运行的服务，请先点“停止”，或直接关闭本窗口。";
 
-    private void RefreshButtonState()
+    /// <summary>
+    /// 这个启动器能做三件事：启动 / 停止服务、更新、退出。这里把每件事现在叫什么、
+    /// 能不能做，一次写到它出现的两个地方 —— 窗口上的两个按钮，和托盘菜单里的三行。
+    ///
+    /// 判断只在这里做一次：同一件事有两个入口，两处各判断一次，迟早会有一处变陈旧，
+    /// 变成“按钮是停止、菜单是启动”这种自相矛盾的样子。
+    /// </summary>
+    private void RefreshActionState()
     {
         if (_isBusy)
         {
@@ -190,6 +299,34 @@ public partial class MainWindow
          */
         var canUpdate = !_isBusy && !_isUpdating && _keeper is { IsPortListening: false };
         UpdateButton.IsEnabled = canUpdate;
+
+        /*
+         * 菜单那三行的可用性完全取自按钮。
+         *
+         * 文字没有完全跟着按钮：窗口上只有那一个按钮要兼作“正在启动 / 正在更新”的提示位，
+         * 菜单里这两句话分别由两个菜单项自己说（第一项说启动或停止，第二项说更新或正在更新），
+         * 照抄按钮的话，忙碌时两行会显示同一句话。
+         */
+        _trayServiceItem.Header    = _keeper is { IsPortListening: true } ? "停止" : "启动";
+        _trayServiceItem.IsEnabled = ServiceButton.IsEnabled;
+
+        /*
+         * 这一项点击后菜单要不要留着，取决于它当下是什么动作：
+         * 点“停止”多半后面还跟着一次“启动”（重启就是这两下），收起来等于逼用户再右键一次；
+         * 点“启动”则相反 —— 启动成功窗口就收起来了，菜单挂在屏幕上只会碍事。
+         */
+        _trayServiceItem.StaysOpenOnClick = _keeper is { IsPortListening: true };
+
+        _trayUpdateItem.Header    = _isUpdating ? "正在更新" : "更新";
+        _trayUpdateItem.IsEnabled = UpdateButton.IsEnabled;
+
+        /*
+         * 更新期间连退出也置灰。
+         * 更新没有中途取消这条路（半途杀掉 npm 会留下一个替换了一半的包），
+         * 于是“能不能退出”就变成了“要不要留一个坏掉的安装”——
+         * 这几十秒不值得用一份坏包去换。
+         */
+        _trayExitItem.IsEnabled = !_isUpdating;
     }
 
     private void OnKeeperLog(string line)
@@ -207,8 +344,29 @@ public partial class MainWindow
     private static readonly Action<MainWindow, string> WindowApplyState = (window, text) =>
     {
         window.AppendLog(text);
-        window.RefreshButtonState();
+        window.RefreshActionState();
     };
+
+    /// <summary>
+    /// 程序启动时的第一件事：直接走一遍“启动”，中间不显示窗口。
+    ///
+    /// 成功的话这个窗口从头到尾没露过面 —— 用户要的是服务和应用窗口，不是这块日志；
+    /// 失败（配置读不出来，或者服务没起来）才把它拿出来：错误得看得见。
+    /// 这正好也是窗口上那个按钮的语义：成功就收起来，失败就留在眼前。
+    /// </summary>
+    public void StartOnLaunch()
+    {
+        _ = StartOnLaunchAsync();
+    }
+
+    private async Task StartOnLaunchAsync()
+    {
+        // 配置读不出来时 _keeper 是 null：窗口必须出来，原因就写在日志里
+        if (_keeper is null || !await StartServiceAsync())
+        {
+            ShowFromTray();
+        }
+    }
 
     /// <summary>
     /// 同一个按钮的两个方向：服务没在监听就是“启动”，在监听就是“停止”。
@@ -231,6 +389,7 @@ public partial class MainWindow
                 return;
             }
 
+            // 成功与否这里不用管：成功就收进托盘，失败时窗口本来就留在屏幕上
             await StartServiceAsync();
         }
         catch (Exception)
@@ -239,27 +398,36 @@ public partial class MainWindow
         }
     }
 
-    private async Task StartServiceAsync()
+    /// <summary>
+    /// 启动服务。
+    ///
+    /// 成功就收起启动器（用户接下来要看的是应用窗口，不是日志），
+    /// 失败就把它留在屏幕上（报错得看得见）—— 启动时走的就是同一条路，
+    /// 只是那时窗口还没显示过，收起来等于什么都没发生。
+    /// </summary>
+    /// <returns>服务是否起来了。</returns>
+    private async Task<bool> StartServiceAsync()
     {
         _isBusy = true;
-        RefreshButtonState();
+        RefreshActionState();
 
         try
         {
             await _keeper!.StartAsync();
 
-            // 服务真的起来了再收起启动器：用户接下来要看的是应用窗口，不是日志。
-            // 位置放在这里而不是点击处，是为了让启动失败时窗口还留在屏幕上 —— 报错得看得见。
-            WindowState = WindowState.Minimized;
+            // 收进托盘而不是摊在任务栏上 —— 要它回来点托盘图标就行
+            HideToTray();
+            return true;
         }
         catch (Exception ex)
         {
             AppendLog("启动失败：" + ex.Message);
+            return false;
         }
         finally
         {
             _isBusy = false;
-            RefreshButtonState();
+            RefreshActionState();
         }
     }
 
@@ -271,7 +439,7 @@ public partial class MainWindow
     private async Task StopServiceAsync()
     {
         _isBusy = true;
-        RefreshButtonState();
+        RefreshActionState();
 
         var stopping = StopCurrentAsync();
         _stopTask = stopping;
@@ -284,7 +452,7 @@ public partial class MainWindow
         finally
         {
             _isBusy = false;
-            RefreshButtonState();
+            RefreshActionState();
         }
     }
 
@@ -344,7 +512,7 @@ public partial class MainWindow
 
         _isBusy     = true;
         _isUpdating = true;
-        RefreshButtonState();
+        RefreshActionState();
 
         try
         {
@@ -376,7 +544,7 @@ public partial class MainWindow
         {
             _isUpdating = false;
             _isBusy     = false;
-            RefreshButtonState();
+            RefreshActionState();
         }
     }
 
@@ -401,17 +569,31 @@ public partial class MainWindow
         }
     }
 
+    /// <summary>
+    /// 关闭按钮不关掉程序，只是把窗口收进托盘 —— 服务继续跑。
+    ///
+    /// 真正退出走托盘菜单的“退出”（见 OnExitMenuItemClicked），它先把服务停掉
+    /// 再关窗口；所以走到这里而 _isExiting 为真的，只剩那一条路。
+    /// </summary>
     private async void OnClosing(object? sender, CancelEventArgs e)
     {
         try
         {
+            if (!_isExiting)
+            {
+                e.Cancel = true;
+                HideToTray();
+                return;
+            }
+
             if (_isClosingAfterStop)
             {
                 return;
             }
 
             /*
-             * 关窗只管一件事：把它拉起来的服务停掉。
+             * 走到这里只有一件事要做：确认服务真的停了（退出那条路已经停过一次，
+             * 端口还活着说明那次超时了）。
              * 启动或更新还在跑时关窗不做任何兜底（不等、不取消）—— 用户自己会让它们跑完，
              * 这两条路上再堆一层等待与取消，只是多一套要跟着维护的路径。
              */
@@ -423,8 +605,8 @@ public partial class MainWindow
             }
 
             e.Cancel = true;
-            _isBusy   = true;
-            RefreshButtonState();
+            _isBusy  = true;
+            RefreshActionState();
 
             /*
              * 按钮上可能已经在停了：这里再停一次也无妨 ——
@@ -450,6 +632,172 @@ public partial class MainWindow
             // ignored
         }
     }
+
+    /// <summary>
+    /// 托盘图标的右键菜单：启动 / 停止，更新，分隔线，退出。
+    ///
+    /// 前两项直接挂在窗口按钮的处理函数上：菜单项和按钮要做的是同一件事，
+    /// 各写一个处理函数，就等于同一件事有两条会各自走偏的路径。
+    ///
+    /// 退出只在更新期间置灰（见 RefreshActionState）：
+    /// 那是唯一一个“现在走会留下烂摊子”的时刻。
+    /// </summary>
+    private ContextMenu BuildTrayMenu()
+    {
+        _trayServiceItem.Click += OnServiceButtonClicked;
+        _trayUpdateItem.Click  += OnUpdateButtonClicked;
+        _trayExitItem.Click    += OnExitMenuItemClicked;
+
+        /*
+         * 更新这一项点击后菜单不收起。
+         * 更新是这里唯一一个“点完还得看着”的动作：那两行会当场变成“正在更新”
+         * 和灰掉的“退出”（见 RefreshActionState），菜单先收起来再让用户右键一次才能看到，
+         * 等于让用户白点一次。
+         *
+         * 服务那一项的同一个开关是跟着它的动作走的（停止留着、启动收起）；
+         * 退出则一定收起 —— 点完它程序就没了。
+         */
+        _trayUpdateItem.StaysOpenOnClick = true;
+
+        return new ContextMenu
+        {
+            Items =
+            {
+                _trayServiceItem,
+                _trayUpdateItem,
+                new Separator(),
+                _trayExitItem
+            }
+        };
+    }
+
+    /// <summary>
+    /// 托盘左键：窗口在屏幕上就收进托盘，已经收着就拿出来。
+    ///
+    /// 双击就是两次单击：先收起来再拿出来，用户看到的是窗口闪一下。
+    /// 想让它变成一次单击，就得把第一次单击压后等一等，为一个没人会用的手势
+    /// 让单击也慢半拍，不划算。
+    /// </summary>
+    private void OnTrayIconLeftClicked()
+    {
+        if (IsVisible && WindowState != WindowState.Minimized)
+        {
+            HideToTray();
+            return;
+        }
+
+        ShowFromTray();
+    }
+
+    /// <summary>
+    /// 弹出右键菜单，位置取鼠标处，也就是托盘图标那里。
+    /// </summary>
+    private void ShowTrayMenu()
+    {
+        _trayMenu.Placement = PlacementMode.MousePoint;
+        _trayMenu.IsOpen    = true;
+    }
+
+    /// <summary>
+    /// 菜单弹出之后，把菜单自己的窗口推到前台。
+    ///
+    /// 实测：少了这一步，点菜单以外的地方菜单不会收起来。
+    /// 菜单的消失靠的是它自己那把鼠标捕获被夺走，而进程手里没有前台窗口时，
+    /// 那一下收不到；托盘图标不在任何窗口上，菜单就挂在那里了。
+    /// </summary>
+    private void OnTrayMenuOpened(object? sender, RoutedEventArgs e)
+    {
+        if (sender is ContextMenu menu && PresentationSource.FromVisual(menu) is HwndSource source)
+        {
+            SetForegroundWindow(source.Handle);
+        }
+    }
+
+    /// <summary>
+    /// 把窗口收进托盘。
+    ///
+    /// 先还原成 Normal 再隐藏：一个隐藏着的窗口若状态还是 Minimized，
+    /// 下次 Show() 出来的是个最小化的空壳。
+    /// </summary>
+    private void HideToTray()
+    {
+        WindowState = WindowState.Normal;
+        Hide();
+    }
+
+    /// <summary>
+    /// 把窗口从托盘里拿出来、叫到前面。托盘左键与“第二个实例来敲门”都走这里。
+    ///
+    /// 最小化时要先还原：只调 Activate() 对最小化的窗口没有效果，
+    /// 用户看到的就是“程序没理他”。
+    /// </summary>
+    public void ShowFromTray()
+    {
+        if (WindowState == WindowState.Minimized)
+        {
+            WindowState = WindowState.Normal;
+        }
+
+        if (!IsVisible)
+        {
+            Show();
+        }
+
+        Activate();
+    }
+
+    /// <summary>
+    /// 最小化按钮不再往任务栏上放窗口，而是收到托盘里去。
+    ///
+    /// 拦的是状态变化而不是按钮点击：Alt+空格菜单里的“最小化”、
+    /// 任务栏右键菜单、以及启动成功后自己收起的那一下，走的都是这里。
+    /// </summary>
+    private void OnWindowStateChanged(object? sender, EventArgs e)
+    {
+        if (WindowState == WindowState.Minimized)
+        {
+            HideToTray();
+        }
+    }
+
+    /// <summary>
+    /// 托盘菜单的“退出”：这才是真正的退出。
+    ///
+    /// 关窗口只是收进托盘（见 OnClosing），所以退出得自己把服务停掉 ——
+    /// “启动器活着服务就活着，服务停了才轮到启动器走”这条契约，
+    /// 不能因为多了一个托盘图标就断掉。
+    /// 停服务走按钮那条路：按钮文字、超时处理只有一份。
+    /// </summary>
+    private async void OnExitMenuItemClicked(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (_isExiting)
+            {
+                return;
+            }
+
+            _isExiting = true;
+
+            await StopServiceAsync();
+
+            // 关掉这个窗口就是关掉最后一个窗口，程序随之退出
+            Close();
+        }
+        catch (Exception)
+        {
+            // ignored
+        }
+    }
+
+    private void OnClosed(object? sender, EventArgs e)
+    {
+        // 不摘掉托盘图标，它会变成通知区域里的一块幽灵，要等鼠标划过去才消失
+        _trayIcon.Dispose();
+    }
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
 
     private void AppendLog(string line)
     {
