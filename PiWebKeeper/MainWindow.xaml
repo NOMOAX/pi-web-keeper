@@ -9,7 +9,7 @@
         WindowStartupLocation="CenterScreen">
     <DockPanel Margin="14">
 
-        <!-- 操作区：服务按钮在最左，右边是更新按钮，共两个排成一行。
+        <!-- 操作区：一行四个按钮（启动 / 停止、更新、重启程序、退出）。
              窗口宽度写死 640（Width 与 MinWidth，见 Window）：这一行本身比它窄得多，
              所以 WrapPanel 永远不会真的折行 —— 它只是兜底。面板自身不留间距：按钮自己的外边距就是行间距，两处都留会变成双倍。 -->
         <WrapPanel DockPanel.Dock="Top"
@@ -29,6 +29,20 @@
                     Width="80"
                     Height="40"
                     Click="OnUpdateButtonClicked" />
+
+            <!-- 重启程序按钮：结束本程序再重新拉起，服务跟着一起重启（见 MainWindow.LeaveAsync） -->
+            <Button x:Name="RestartButton"
+                    Content="重启程序"
+                    Width="80"
+                    Height="40"
+                    Click="OnRestartButtonClicked" />
+
+            <!-- 退出按钮：和托盘菜单里的“退出”是同一件事（同一个处理函数） -->
+            <Button x:Name="ExitButton"
+                    Content="退出"
+                    Width="80"
+                    Height="40"
+                    Click="OnExitButtonClicked" />
 
         </WrapPanel>
 

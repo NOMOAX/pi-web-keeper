@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows;
@@ -9,10 +10,10 @@ using System.Windows.Interop;
 namespace PiWebKeeper;
 
 /// <summary>
-/// 主窗口：一个按钮控制服务的启动 / 停止，右侧是更新按钮，下方是只读日志。
+/// 主窗口：一行四个按钮（启动 / 停止、更新、重启程序、退出），下方是只读日志。
 ///
-/// 窗口与服务同生命周期：窗口收进托盘的时候服务继续跑，只有托盘菜单的“退出”
-/// 才会连服务一起收走。最小化与关闭对用户是同一个意思 —— 回到托盘里去。
+/// 窗口与服务同生命周期：窗口收进托盘的时候服务继续跑，只有“退出”才会连服务一起收走。
+/// 最小化与关闭对用户是同一个意思 —— 回到托盘里去。
 /// </summary>
 public partial class MainWindow
 {
@@ -39,6 +40,14 @@ public partial class MainWindow
     private readonly MenuItem _trayUpdateItem = new()
     {
         Header = "更新"
+    };
+
+    /// <summary>
+    /// 菜单里的“重启程序”：结束本程序并重新启动（见 LeaveAsync）。
+    /// </summary>
+    private readonly MenuItem _trayRestartItem = new()
+    {
+        Header = "重启程序"
     };
 
     /// <summary>
@@ -109,10 +118,10 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// 两个按钮的外边距与提示语。
+    /// 四个按钮的外边距与提示语。
     ///
-    /// 间距不写在 XAML 里，是为了服务按钮和更新按钮用同一个值：两边各写一份的话，
-    /// 改一边就会漏掉另一边。窗口宽度是固定的，行尾多出来的那点边距不会撑宽窗口。
+    /// 间距不写在 XAML 里，是为了四个按钮用同一个值：各写一份的话，
+    /// 改一处就会漏掉另一处。窗口宽度是固定的，行尾多出来的那点边距不会撑宽窗口。
     ///
     /// 提示语也放在这里：同一句话还要写进日志，两份文本就是两个会各自变陈旧的版本。
     /// </summary>
@@ -122,7 +131,14 @@ public partial class MainWindow
 
         ServiceButton.Margin = margin;
         UpdateButton.Margin  = margin;
+        RestartButton.Margin = margin;
+        ExitButton.Margin    = margin;
+
         UpdateButton.ToolTip = ServiceRunningUpdateHint;
+
+        // 离开类那两个按钮共用“更新期间不能走”这一句；重启那一条再多说一句它到底做了什么
+        ExitButton.ToolTip    = LeaveBlockedByUpdateHint;
+        RestartButton.ToolTip = RestartHint + " " + LeaveBlockedByUpdateHint;
     }
 
     /// <summary>
@@ -261,8 +277,18 @@ public partial class MainWindow
     private const string ServiceRunningUpdateHint = "服务运行中不执行更新：更新不会停掉正在运行的服务，请先点“停止”，或直接关闭本窗口。";
 
     /// <summary>
-    /// 这个启动器能做三件事：启动 / 停止服务、更新、退出。这里把每件事现在叫什么、
-    /// 能不能做，一次写到它出现的两个地方 —— 窗口上的两个按钮，和托盘菜单里的三行。
+    /// 退出与重启程序共同的那条说明：它们在同一个时刻被置灰。
+    /// </summary>
+    private const string LeaveBlockedByUpdateHint = "更新期间不能退出或重启程序：更新没有中途取消，半途走掉会留下一个替换了一半的包。";
+
+    /// <summary>
+    /// 重启程序到底做了什么（服务会跟着重启，这是它和退出唯一的不同）。
+    /// </summary>
+    private const string RestartHint = "结束本程序并重新启动，服务跟着一起重启。";
+
+    /// <summary>
+    /// 这个启动器能做四件事：启动 / 停止服务、更新、重启程序、退出。这里把每件事现在叫什么、
+    /// 能不能做，一次写到它出现的两个地方 —— 窗口上的四个按钮，和托盘菜单里的四行。
     ///
     /// 判断只在这里做一次：同一件事有两个入口，两处各判断一次，迟早会有一处变陈旧，
     /// 变成“按钮是停止、菜单是启动”这种自相矛盾的样子。
@@ -321,12 +347,19 @@ public partial class MainWindow
         _trayUpdateItem.IsEnabled = UpdateButton.IsEnabled;
 
         /*
-         * 更新期间连退出也置灰。
-         * 更新没有中途取消这条路（半途杀掉 npm 会留下一个替换了一半的包），
-         * 于是“能不能退出”就变成了“要不要留一个坏掉的安装”——
-         * 这几十秒不值得用一份坏包去换。
+         * 能不能离开这个程序（退出、重启程序）：窗口上两个按钮与菜单里两行共用这一条判断。
+         *
+         * 更新期间一律置灰 —— 更新没有中途取消这条路（半途杀掉 npm 会留下一个替换了一半的包），
+         * 于是“能不能走”就变成了“要不要留一个坏掉的安装”。
+         * 已经在离开的路上（_isExiting）时也不用再点：那两个处理函数自己忽略重入，
+         * 置灰只是把这件事说在明处。
          */
-        _trayExitItem.IsEnabled = !_isUpdating;
+        var canLeave = !_isUpdating && !_isExiting;
+
+        ExitButton.IsEnabled       = canLeave;
+        RestartButton.IsEnabled    = canLeave;
+        _trayExitItem.IsEnabled    = canLeave;
+        _trayRestartItem.IsEnabled = canLeave;
     }
 
     private void OnKeeperLog(string line)
@@ -572,8 +605,8 @@ public partial class MainWindow
     /// <summary>
     /// 关闭按钮不关掉程序，只是把窗口收进托盘 —— 服务继续跑。
     ///
-    /// 真正退出走托盘菜单的“退出”（见 OnExitMenuItemClicked），它先把服务停掉
-    /// 再关窗口；所以走到这里而 _isExiting 为真的，只剩那一条路。
+    /// 真正退出走“退出”（见 LeaveAsync），它先把服务停掉再关窗口；
+    /// 所以走到这里而 _isExiting 为真的，只剩那一条路。
     /// </summary>
     private async void OnClosing(object? sender, CancelEventArgs e)
     {
@@ -634,28 +667,29 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// 托盘图标的右键菜单：启动 / 停止，更新，分隔线，退出。
+    /// 托盘图标的右键菜单：启动 / 停止，更新，分隔线，重启程序，退出。
     ///
-    /// 前两项直接挂在窗口按钮的处理函数上：菜单项和按钮要做的是同一件事，
+    /// 四项都直接挂在窗口按钮的处理函数上：菜单项和按钮要做的是同一件事，
     /// 各写一个处理函数，就等于同一件事有两条会各自走偏的路径。
     ///
-    /// 退出只在更新期间置灰（见 RefreshActionState）：
+    /// 重启与退出只在更新期间置灰（见 RefreshActionState）：
     /// 那是唯一一个“现在走会留下烂摊子”的时刻。
     /// </summary>
     private ContextMenu BuildTrayMenu()
     {
         _trayServiceItem.Click += OnServiceButtonClicked;
         _trayUpdateItem.Click  += OnUpdateButtonClicked;
-        _trayExitItem.Click    += OnExitMenuItemClicked;
+        _trayRestartItem.Click += OnRestartButtonClicked;
+        _trayExitItem.Click    += OnExitButtonClicked;
 
         /*
          * 更新这一项点击后菜单不收起。
          * 更新是这里唯一一个“点完还得看着”的动作：那两行会当场变成“正在更新”
-         * 和灰掉的“退出”（见 RefreshActionState），菜单先收起来再让用户右键一次才能看到，
+         * 和灰掉的离开类动作（见 RefreshActionState），菜单先收起来再让用户右键一次才能看到，
          * 等于让用户白点一次。
          *
          * 服务那一项的同一个开关是跟着它的动作走的（停止留着、启动收起）；
-         * 退出则一定收起 —— 点完它程序就没了。
+         * 重启与退出则一定收起 —— 点完这个程序就没了。
          */
         _trayUpdateItem.StaysOpenOnClick = true;
 
@@ -666,6 +700,7 @@ public partial class MainWindow
                 _trayServiceItem,
                 _trayUpdateItem,
                 new Separator(),
+                _trayRestartItem,
                 _trayExitItem
             }
         };
@@ -761,32 +796,125 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// 托盘菜单的“退出”：这才是真正的退出。
+    /// 窗口上的“退出”，也是托盘菜单里的那一项：这才是真正的退出。
     ///
     /// 关窗口只是收进托盘（见 OnClosing），所以退出得自己把服务停掉 ——
-    /// “启动器活着服务就活着，服务停了才轮到启动器走”这条契约，
-    /// 不能因为多了一个托盘图标就断掉。
-    /// 停服务走按钮那条路：按钮文字、超时处理只有一份。
+    /// “启动器活着服务就活着，服务停了才轮到启动器走”这条契约不能断。
     /// </summary>
-    private async void OnExitMenuItemClicked(object sender, RoutedEventArgs e)
+    private void OnExitButtonClicked(object sender, RoutedEventArgs e)
     {
+        _ = LeaveAsync(handOverToSuccessor: false);
+    }
+
+    /// <summary>
+    /// 窗口上的“重启程序”，也是托盘菜单里的那一项：安排好继任者，然后走。
+    /// </summary>
+    private void OnRestartButtonClicked(object sender, RoutedEventArgs e)
+    {
+        _ = LeaveAsync(handOverToSuccessor: true);
+    }
+
+    /// <summary>
+    /// 离开程序：退出，或者先安排好继任者再退出。
+    ///
+    /// 两者只差“有没有继任者”这一件事。两条路都先把服务停掉：这样服务与启动器的空档
+    /// 是同一个（服务在旧实例手里停完，继任者接着把它拉起来）——
+    /// 把停服务留给继任者做的话，中间会多出“服务在跑、启动器不在”的一段。
+    ///
+    /// 停服务失败也照样走：用户点的是“离开”，不是“停服务”。
+    /// 关掉这个窗口就是关掉最后一个窗口，程序随之退出（见 OnClosing）。
+    /// </summary>
+    private async Task LeaveAsync(bool handOverToSuccessor)
+    {
+        if (_isExiting)
+        {
+            return;
+        }
+
+        _isExiting = true;
+        RefreshActionState();
+
+        /*
+         * 继任者先安排：它起不来就哪儿也别去 —— 留在这里，日志里有原因，
+         * 服务也还没动，用户点一下“启动”就能恢复。
+         */
+        if (handOverToSuccessor && !TryStartRestartHelper())
+        {
+            _isExiting = false;
+            RefreshActionState();
+            return;
+        }
+
         try
         {
-            if (_isExiting)
-            {
-                return;
-            }
-
-            _isExiting = true;
-
             await StopServiceAsync();
-
-            // 关掉这个窗口就是关掉最后一个窗口，程序随之退出
-            Close();
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            // ignored
+            AppendLog("停止服务时出错：" + ex.Message);
+        }
+
+        Close();
+    }
+
+    /// <summary>
+    /// 重启用的隐藏帮手：等这个进程退出，再把本程序重新拉起来。
+    ///
+    /// 为什么放到进程外面：新实例必须等旧实例真的退出才能启动（`SingleInstanceGuard`
+    /// 拿的是按安装目录命名的实例锁，撞上锁的那个实例只会“敲一下已有实例然后自己退出”），
+    /// 而等待这件事自己进程做不了 —— 它马上就不在了。
+    ///
+    /// 几个不能省的地方（改之前先读）：
+    ///   - `UseShellExecute = false` 与 `CreateNoWindow = true`：少了它们会闪一个黑框；
+    ///   - 可执行文件路径用双引号包起来，而且引号前面那道反斜杠不能删（见下面那段注释）；
+    ///   - 整段脚本不套外层引号：`-Command` 后面整段都是脚本本身，
+    ///     再套一层引号反而会和里面那层打架；
+    ///   - 等待失败也算等到了（`-ErrorAction Stop` 加空 catch）：帮手很可能在旧进程
+    ///     早就死透之后才开始等，那时 `Wait-Process` 会因为“找不到这个进程”报错，
+    ///     不吞掉它，新实例就永远起不来；
+    ///   - 帮手是本进程的子进程，所以离开必须走正常退出（见 LeaveAsync），
+    ///     整树 Kill 会把它一起杀掉。
+    ///
+    /// 帮手出错是没人报的（它在我们的日志之外，那时程序已经没了）：这是接下这个方案时
+    /// 就认下的代价 —— 大不了用户再双击一次 exe。
+    /// </summary>
+    private bool TryStartRestartHelper()
+    {
+        var executablePath = Environment.ProcessPath;
+        if (string.IsNullOrEmpty(executablePath))
+        {
+            AppendLog("重启失败：拿不到本程序的可执行文件路径。");
+            return false;
+        }
+
+        /*
+         * 引号前面那道反斜杠（`\"`）不能删：裸引号会被命令行解析吃掉，
+         * 反斜杠才能把它保到 PowerShell 那一层，让那边看到的是
+         * `Start-Process -FilePath "C:\...\Pi Web Keeper\PiWebKeeper.exe"`。
+         * 实测：少了它，路径里的空格会把命令撕成两半（帮手报 positional parameter cannot be found）。
+         */
+        var quotedPath = $"\\\"{executablePath}\\\"";
+
+        var script = $"try {{ Wait-Process -Id {Environment.ProcessId} -Timeout 30 -ErrorAction Stop }} catch {{}}; " +
+                     $"Start-Process -FilePath {quotedPath}";
+
+        try
+        {
+            Process.Start(
+                new ProcessStartInfo("powershell.exe", $"-NoProfile -WindowStyle Hidden -Command {script}")
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow  = true
+                }
+            );
+
+            AppendLog("正在重启：本程序退出后它会再把它拉起来。");
+            return true;
+        }
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException)
+        {
+            AppendLog("重启失败：" + ex.Message);
+            return false;
         }
     }
 
