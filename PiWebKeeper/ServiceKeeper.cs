@@ -22,9 +22,9 @@ public sealed class ServiceKeeper(KeeperConfig config)
     private Process? _process;
 
     /// <summary>
-    /// 输出一行日志（供界面显示）。
+    /// 输出一行消息（供界面显示）。
     /// </summary>
-    public event Action<string>? LogReceived;
+    public event Action<string>? MessageReceived;
 
     /// <summary>
     /// 运行状态变化（供界面显示）。
@@ -68,7 +68,7 @@ public sealed class ServiceKeeper(KeeperConfig config)
         if (config.ReadyDelaySeconds > 0)
         {
             SetState($"等待服务加载（{config.ReadyDelaySeconds:0.#} 秒）…");
-            Log($"端口已就绪，额外等待 {config.ReadyDelaySeconds:0.#} 秒（部分服务就绪后还要加载插件）。");
+            RaiseMessage($"端口已就绪，额外等待 {config.ReadyDelaySeconds:0.#} 秒（部分服务就绪后还要加载插件）。");
             await Task.Delay(TimeSpan.FromSeconds(config.ReadyDelaySeconds)).ConfigureAwait(false);
         }
 
@@ -107,7 +107,7 @@ public sealed class ServiceKeeper(KeeperConfig config)
         }
 
         // 兜底：树杀没有覆盖到的进程（例如服务是启动器之外拉起来的，或残留的孤儿子进程）
-        Log($"端口 {config.Port} 仍被占用，尝试终止占用进程。");
+        RaiseMessage($"端口 {config.Port} 仍被占用，尝试终止占用进程。");
         foreach (var processId in PortProbe.FindOwningProcessIds(config.Port))
         {
             TryKillProcessById(processId, killTree: true);
@@ -123,7 +123,7 @@ public sealed class ServiceKeeper(KeeperConfig config)
 
         if (!released)
         {
-            Log($"警告：端口 {config.Port} 仍未释放，下次启动可能会失败。");
+            RaiseMessage($"警告：端口 {config.Port} 仍未释放，下次启动可能会失败。");
         }
     }
 
@@ -151,20 +151,20 @@ public sealed class ServiceKeeper(KeeperConfig config)
         {
             if (e.Data is not null)
             {
-                Log(e.Data);
+                RaiseMessage(e.Data);
             }
         };
         process.ErrorDataReceived += (_, e) =>
         {
             if (e.Data is not null)
             {
-                Log("[stderr] " + e.Data);
+                RaiseMessage("[stderr] " + e.Data);
             }
         };
         process.Exited += (_, _) =>
         {
             var exitCode = TryGetExitCode(process);
-            Log($"服务进程已退出（退出码 {exitCode}）。");
+            RaiseMessage($"服务进程已退出（退出码 {exitCode}）。");
 
             // Exited 是异步回调：重启流程里旧进程的退出通知可能晚于新进程的启动，
             // 只有确认退出的就是当前进程时才更新状态，否则会把"正在启动"覆盖成"已停止"。
@@ -188,7 +188,7 @@ public sealed class ServiceKeeper(KeeperConfig config)
             _process = process;
         }
 
-        Log($"服务已启动（pid {process.Id}）：{config.StartCommand}");
+        RaiseMessage($"服务已启动（pid {process.Id}）：{config.StartCommand}");
 
         // 把进程交给调用方：等就绪的时候还要盯着它 —— 见 WaitUntilReadyAsync
         return process;
@@ -243,14 +243,14 @@ public sealed class ServiceKeeper(KeeperConfig config)
             );
         }
 
-        Log($"端口 {config.Port} 已就绪。");
+        RaiseMessage($"端口 {config.Port} 已就绪。");
     }
 
     private void OpenAppWindow()
     {
         if (string.IsNullOrWhiteSpace(config.AppUserModelId))
         {
-            Log("未配置 AppUserModelId，跳过打开应用窗口。");
+            RaiseMessage("未配置 AppUserModelId，跳过打开应用窗口。");
             return;
         }
 
@@ -263,11 +263,11 @@ public sealed class ServiceKeeper(KeeperConfig config)
                     UseShellExecute = true
                 }
             );
-            Log("已打开应用窗口。");
+            RaiseMessage("已打开应用窗口。");
         }
         catch (Exception ex) when (ex is Win32Exception or InvalidOperationException)
         {
-            Log($"打开应用窗口失败：{ex.Message}");
+            RaiseMessage($"打开应用窗口失败：{ex.Message}");
         }
     }
 
@@ -281,7 +281,7 @@ public sealed class ServiceKeeper(KeeperConfig config)
         var closed = AppWindowCloser.CloseWindows(config.AppUserModelId);
         if (closed > 0)
         {
-            Log($"已关闭 {closed} 个应用窗口。");
+            RaiseMessage($"已关闭 {closed} 个应用窗口。");
         }
     }
 
@@ -312,12 +312,12 @@ public sealed class ServiceKeeper(KeeperConfig config)
             {
                 process.Kill(entireProcessTree: true);
                 process.WaitForExit((int)ProcessExitTimeout.TotalMilliseconds);
-                Log("服务进程已终止。");
+                RaiseMessage("服务进程已终止。");
             }
         }
         catch (Exception ex) when (ex is InvalidOperationException or Win32Exception or NotSupportedException)
         {
-            Log($"终止服务进程失败：{ex.Message}");
+            RaiseMessage($"终止服务进程失败：{ex.Message}");
         }
         finally
         {
@@ -332,12 +332,12 @@ public sealed class ServiceKeeper(KeeperConfig config)
             using var process = Process.GetProcessById(processId);
             process.Kill(entireProcessTree: killTree);
             process.WaitForExit((int)ProcessExitTimeout.TotalMilliseconds);
-            Log($"已终止占用端口的进程（pid {processId}）。");
+            RaiseMessage($"已终止占用端口的进程（pid {processId}）。");
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or Win32Exception)
         {
             // 进程可能已经自己退出了
-            Log($"终止进程 {processId} 时未成功：{ex.Message}");
+            RaiseMessage($"终止进程 {processId} 时未成功：{ex.Message}");
         }
     }
 
@@ -353,9 +353,9 @@ public sealed class ServiceKeeper(KeeperConfig config)
         }
     }
 
-    private void Log(string message)
+    private void RaiseMessage(string message)
     {
-        LogReceived?.Invoke($"[{DateTime.Now:HH:mm:ss}] {message}");
+        MessageReceived?.Invoke($"[{DateTime.Now:HH:mm:ss}] {message}");
     }
 
     private void SetState(string state)

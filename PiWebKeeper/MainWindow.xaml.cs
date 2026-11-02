@@ -5,7 +5,10 @@ using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Interop;
+using System.Windows.Media;
+using System.Windows.Media.Media3D;
 
 namespace PiWebKeeper;
 
@@ -77,7 +80,7 @@ public partial class MainWindow
     /// <summary>
     /// 按钮之间的间距，水平与垂直用同一个值。
     /// 水平方向是同行相邻按钮的间隔；垂直方向是按钮自身的外边距，
-    /// 所以它决定了按钮行底部到日志面板的距离，以及（万一折行时）两行之间的间隔。
+    /// 所以它决定了按钮行底部到消息框的距离，以及（万一折行时）两行之间的间隔。
     /// </summary>
     private const double ButtonSpacing = 8;
 
@@ -93,11 +96,11 @@ public partial class MainWindow
          */
         _trayMenu = BuildTrayMenu();
 
-        _trayIcon               =  new TrayIcon(Title);
-        _trayIcon.LogReceived   += OnKeeperLog;
-        _trayIcon.LeftClicked   += OnTrayIconLeftClicked;
-        _trayIcon.MenuRequested += ShowTrayMenu;
-        _trayMenu.Opened        += OnTrayMenuOpened;
+        _trayIcon                 =  new TrayIcon(Title);
+        _trayIcon.MessageReceived += OnKeeperMessage;
+        _trayIcon.LeftClicked     += OnTrayIconLeftClicked;
+        _trayIcon.MenuRequested   += ShowTrayMenu;
+        _trayMenu.Opened          += OnTrayMenuOpened;
 
         LoadKeeper();
 
@@ -155,6 +158,9 @@ public partial class MainWindow
         }
 
         RemoveMaximizeBox(handle);
+
+        // 标题栏、边框这些非客户区不走 WPF 的路由事件，收焦点只能从窗口消息里做（见 OnWindowMessage）
+        HwndSource.FromHwnd(handle)?.AddHook(OnWindowMessage);
 
         // 托盘的点击由这个窗口接收（见 TrayIcon），所以图标要等 handle 有了才能登记
         _trayIcon.Attach(handle);
@@ -222,6 +228,11 @@ public partial class MainWindow
     private const uint StyleChangeOnly =
         PreservePosition | PreserveSize | PreserveZOrder | PreserveActivation | RedrawFrame;
 
+    /// <summary>
+    /// WM_NCLBUTTONDOWN：在标题栏、边框、系统按钮上按下左键。
+    /// </summary>
+    private const int NonClientLeftButtonDown = 0x00A1;
+
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
     private static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int index);
 
@@ -237,6 +248,86 @@ public partial class MainWindow
         int    width,
         int    height,
         uint   flags);
+
+    /// <summary>
+    /// 点在没有控件的地方就把焦点收掉。
+    ///
+    /// WPF 默认不这么做：焦点只跟着“点到可聚焦元素、而且那个元素自己请求焦点”走，
+    /// 面板和窗口客户区都不请求。于是点过消息框再点空白处，选区会一直亮着，
+    /// 方向键也还在滚日志。点在控件上时这里直接返回，照旧交给控件自己处理：
+    /// 按钮要靠点击抢焦点，文本框要靠点击定位插入符与拖动选区。
+    /// </summary>
+    private void OnPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (IsOnFocusableControl(e.OriginalSource as DependencyObject))
+        {
+            return;
+        }
+
+        ClearKeyboardFocus();
+    }
+
+    /// <summary>
+    /// 非客户区的点击也收焦点。
+    ///
+    /// 标题栏、边框和系统按钮由系统直接处理，WPF 不为它们派发鼠标路由事件，
+    /// 所以只在 OnPreviewMouseLeftButtonDown 里做的话，点完标题栏选区照样亮着。
+    /// </summary>
+    private IntPtr OnWindowMessage(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (message == NonClientLeftButtonDown)
+        {
+            ClearKeyboardFocus();
+        }
+
+        return IntPtr.Zero;
+    }
+
+    /// <summary>
+    /// 点击源到窗口之间有没有可聚焦的控件。
+    ///
+    /// 窗口自己不参与判断：它也是可聚焦的（Control 的默认值），算进来的话点哪儿都算点在控件上。
+    /// 消息框的滚动条、按钮模板里的文字都在控件内部，向上总归先遇到那个控件。
+    /// </summary>
+    private bool IsOnFocusableControl(DependencyObject? source)
+    {
+        for (var current = source; current is not null && current != this; current = GetVisualOrLogicalParent(current))
+        {
+            if (current is UIElement { Focusable: true })
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// 向上取一级：视觉元素走视觉树，内容元素（文字里的 Run 之类）走逻辑树。
+    /// </summary>
+    private static DependencyObject? GetVisualOrLogicalParent(DependencyObject element)
+    {
+        return element is Visual or Visual3D
+                   ? VisualTreeHelper.GetParent(element)
+                   : LogicalTreeHelper.GetParent(element);
+    }
+
+    /// <summary>
+    /// 收掉键盘焦点，逻辑焦点也一并清掉。
+    ///
+    /// 只清键盘焦点的话，窗口重新激活时 WPF 会按焦点范围里记着的那个元素把焦点还回去，
+    /// 用户切出去再切回来就会看见选区又亮了。
+    /// </summary>
+    private void ClearKeyboardFocus()
+    {
+        if (Keyboard.FocusedElement is null)
+        {
+            return;
+        }
+
+        FocusManager.SetFocusedElement(this, null);
+        Keyboard.ClearFocus();
+    }
 
     /// <summary>
     /// 读配置、建服务对象。
@@ -255,18 +346,18 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            AppendLog("配置加载失败：" + ex.Message);
+            AppendMessage("配置加载失败：" + ex.Message);
             RefreshActionState();
             return;
         }
 
-        _keeper              =  new ServiceKeeper(config);
-        _keeper.LogReceived  += OnKeeperLog;
-        _keeper.StateChanged += OnKeeperState;
+        _keeper                 =  new ServiceKeeper(config);
+        _keeper.MessageReceived += OnKeeperMessage;
+        _keeper.StateChanged    += OnKeeperState;
 
-        AppendLog($"已加载配置：{KeeperConfigLoader.ConfigPath}");
-        AppendLog($"服务地址：{config.Host}:{config.Port}");
-        AppendLog($"命令：{config.StartCommand}");
+        AppendMessage($"已加载配置：{KeeperConfigLoader.ConfigPath}");
+        AppendMessage($"服务地址：{config.Host}:{config.Port}");
+        AppendMessage($"命令：{config.StartCommand}");
 
         RefreshActionState();
     }
@@ -285,6 +376,13 @@ public partial class MainWindow
     /// 重启程序到底做了什么（服务会跟着重启，这是它和退出唯一的不同）。
     /// </summary>
     private const string RestartHint = "结束本程序并重新启动，服务跟着一起重启。";
+
+    /// <summary>
+    /// 清空消息框后留在框里的那句话。
+    ///
+    /// 不留下空白：空白分不清“程序还没写过日志”与“日志刚被清掉”而留一句话就能分清。
+    /// </summary>
+    private const string ClearedMessagePlaceholder = "----- Message cleared. -----";
 
     /// <summary>
     /// 这个启动器能做四件事：启动 / 停止服务、更新、重启程序、退出。这里把每件事现在叫什么、
@@ -362,12 +460,13 @@ public partial class MainWindow
         _trayRestartItem.IsEnabled = canLeave;
     }
 
-    private void OnKeeperLog(string line)
+    private void OnKeeperMessage(string line)
     {
-        Dispatcher.BeginInvoke(WindowAppendLog, this, line);
+        Dispatcher.BeginInvoke(WindowAppendMessage, this, line);
     }
 
-    private static readonly Action<MainWindow, string> WindowAppendLog = (window, text) => window.AppendLog(text);
+    private static readonly Action<MainWindow, string> WindowAppendMessage =
+        (window, text) => window.AppendMessage(text);
 
     private void OnKeeperState(string state)
     {
@@ -376,7 +475,7 @@ public partial class MainWindow
 
     private static readonly Action<MainWindow, string> WindowApplyState = (window, text) =>
     {
-        window.AppendLog(text);
+        window.AppendMessage(text);
         window.RefreshActionState();
     };
 
@@ -454,7 +553,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            AppendLog("启动失败：" + ex.Message);
+            AppendMessage("启动失败：" + ex.Message);
             return false;
         }
         finally
@@ -480,7 +579,7 @@ public partial class MainWindow
         try
         {
             await stopping;
-            AppendLog("服务已停止。");
+            AppendMessage("服务已停止。");
         }
         finally
         {
@@ -511,7 +610,7 @@ public partial class MainWindow
 
             if (_keeper.IsPortListening)
             {
-                AppendLog("服务正在运行，不执行更新。" + ServiceRunningUpdateHint);
+                AppendMessage("服务正在运行，不执行更新。" + ServiceRunningUpdateHint);
                 return;
             }
 
@@ -551,27 +650,27 @@ public partial class MainWindow
         {
             foreach (var command in updateCommands)
             {
-                AppendLog($"执行：{command}");
+                AppendMessage($"执行：{command}");
 
-                // 输出回调在后台线程上：必须丢回 UI 线程，AppendLog 会碰到控件
+                // 输出回调在后台线程上：必须丢回 UI 线程，AppendMessage 会碰到控件
                 var exitCode = await UpdateRunner.RunStreamingAsync(
                                                      command,
-                                                     line => Dispatcher.BeginInvoke(WindowAppendLog, this, line)
+                                                     line => Dispatcher.BeginInvoke(WindowAppendMessage, this, line)
                                                  )
                                                  .ConfigureAwait(true);
 
                 if (exitCode != 0)
                 {
-                    AppendLog($"更新中止：{command} 退出码 {exitCode}，后面的命令不再执行。");
+                    AppendMessage($"更新中止：{command} 退出码 {exitCode}，后面的命令不再执行。");
                     return;
                 }
             }
 
-            AppendLog("更新完成。");
+            AppendMessage("更新完成。");
         }
         catch (Exception ex)
         {
-            AppendLog("更新失败：" + ex.Message);
+            AppendMessage("更新失败：" + ex.Message);
         }
         finally
         {
@@ -598,7 +697,7 @@ public partial class MainWindow
         }
         catch (Exception ex) when (ex is OperationCanceledException or TimeoutException)
         {
-            AppendLog("停止服务超时。");
+            AppendMessage("停止服务超时。");
         }
     }
 
@@ -650,11 +749,11 @@ public partial class MainWindow
             try
             {
                 await _stopTask;
-                AppendLog("服务已停止，关闭窗口。");
+                AppendMessage("服务已停止，关闭窗口。");
             }
             catch (Exception ex)
             {
-                AppendLog("停止服务时出错：" + ex.Message);
+                AppendMessage("停止服务时出错：" + ex.Message);
             }
 
             _isClosingAfterStop = true;
@@ -851,7 +950,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            AppendLog("停止服务时出错：" + ex.Message);
+            AppendMessage("停止服务时出错：" + ex.Message);
         }
 
         Close();
@@ -883,7 +982,7 @@ public partial class MainWindow
         var executablePath = Environment.ProcessPath;
         if (string.IsNullOrEmpty(executablePath))
         {
-            AppendLog("重启失败：拿不到本程序的可执行文件路径。");
+            AppendMessage("重启失败：拿不到本程序的可执行文件路径。");
             return false;
         }
 
@@ -908,12 +1007,12 @@ public partial class MainWindow
                 }
             );
 
-            AppendLog("正在重启：本程序退出后它会再把它拉起来。");
+            AppendMessage("正在重启：本程序退出后它会再把它拉起来。");
             return true;
         }
         catch (Exception ex) when (ex is Win32Exception or InvalidOperationException)
         {
-            AppendLog("重启失败：" + ex.Message);
+            AppendMessage("重启失败：" + ex.Message);
             return false;
         }
     }
@@ -924,19 +1023,30 @@ public partial class MainWindow
         _trayIcon.Dispose();
     }
 
+    /// <summary>
+    /// 消息框右键菜单里的“清空”。
+    ///
+    /// 清完留一句英文标记（见 ClearedMessagePlaceholder），不留真正的空白。
+    /// 这里只碰日志，不碰服务，也不碰那几个按钮的状态。
+    /// </summary>
+    private void OnClearMessageClicked(object sender, RoutedEventArgs e)
+    {
+        MessageBox.Text = ClearedMessagePlaceholder;
+    }
+
     [DllImport("user32.dll")]
     private static extern bool SetForegroundWindow(IntPtr hWnd);
 
-    private void AppendLog(string line)
+    private void AppendMessage(string line)
     {
         var builder = new StringBuilder();
-        if (LogBox.Text.Length > 0)
+        if (MessageBox.Text.Length > 0)
         {
             builder.AppendLine();
         }
 
         builder.Append(line);
-        LogBox.AppendText(builder.ToString());
-        LogBox.ScrollToEnd();
+        MessageBox.AppendText(builder.ToString());
+        MessageBox.ScrollToEnd();
     }
 }

@@ -6,7 +6,8 @@
         MinWidth="640"
         Height="480"
         MinHeight="480"
-        WindowStartupLocation="CenterScreen">
+        WindowStartupLocation="CenterScreen"
+        PreviewMouseLeftButtonDown="OnPreviewMouseLeftButtonDown">
     <DockPanel Margin="14">
 
         <!-- 操作区：一行四个按钮（启动 / 停止、更新、重启程序、退出）。
@@ -46,9 +47,9 @@
 
         </WrapPanel>
 
-        <!-- 日志面板：就是这一块只读文本框本身，没有外层容器，没有标题。
+        <!-- 消息框：就是这一块只读文本框本身，没有外层容器，没有标题。
              它默认的边框已经是面板的边界，外面再套一层只会白占一圈位置。 -->
-        <TextBox x:Name="LogBox"
+        <TextBox x:Name="MessageBox"
                  IsReadOnly="True"
                  IsReadOnlyCaretVisible="False"
                  IsUndoEnabled="False"
@@ -59,7 +60,22 @@
                  Padding="4"
                  FontFamily="NSimSun"
                  FontSize="12"
-                 TextOptions.TextFormattingMode="Display" />
+                 TextOptions.TextFormattingMode="Display">
+
+            <!-- 右键菜单：前三项是文本框原本就有的，文字与快捷键由命令自带（复制 / Ctrl+C）。
+                 下面两项是本程序加的：一条分隔线，一条“清空”。 -->
+            <TextBox.ContextMenu>
+                <ContextMenu>
+                    <MenuItem Command="ApplicationCommands.Copy" />
+                    <MenuItem Command="ApplicationCommands.Cut" />
+                    <MenuItem Command="ApplicationCommands.Paste" />
+                    <Separator />
+                    <MenuItem Header="清空"
+                              Click="OnClearMessageClicked" />
+                </ContextMenu>
+            </TextBox.ContextMenu>
+
+        </TextBox>
 
     </DockPanel>
 </Window>

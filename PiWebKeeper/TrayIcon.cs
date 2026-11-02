@@ -90,9 +90,9 @@ public sealed class TrayIcon(string tooltip) : IDisposable
     private bool _isAdded;
 
     /// <summary>
-    /// 输出一行日志（供界面显示）。
+    /// 输出一行消息（供界面显示）。
     /// </summary>
-    public event Action<string>? LogReceived;
+    public event Action<string>? MessageReceived;
 
     /// <summary>
     /// 左键单击：让主窗口在屏幕与托盘之间来回。
@@ -134,7 +134,7 @@ public sealed class TrayIcon(string tooltip) : IDisposable
 
         if (!_isAdded)
         {
-            LogReceived?.Invoke("托盘图标登记失败：通知区域没有接受它。");
+            MessageReceived?.Invoke("托盘图标登记失败：通知区域没有接受它。");
         }
     }
 
@@ -163,7 +163,7 @@ public sealed class TrayIcon(string tooltip) : IDisposable
 
         // 图标资源没取到也照样要有托盘图标：窗口收起来之后它是唯一的入口，
         // 难看一点的图标总好过一个进不去的窗口
-        LogReceived?.Invoke("取不到程序图标，托盘改用系统默认图标。");
+        MessageReceived?.Invoke("取不到程序图标，托盘改用系统默认图标。");
 
         return LoadIcon(IntPtr.Zero, DefaultApplicationIconResourceId);
     }
