@@ -1,0 +1,4 @@
+# 静态链接 CRT：产物是一个不依赖 MSVC 运行时的单文件 exe。
+# 这也是体积能落到个位数 MB 的前提之一 —— 动态 CRT 会多出几个 DLL 依赖。
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
