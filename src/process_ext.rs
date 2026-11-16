@@ -31,7 +31,7 @@ use windows::Win32::System::JobObjects::{
     JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
 };
 use windows::Win32::System::Threading::{
-    OpenThread, ResumeThread, CREATE_SUSPENDED, THREAD_SUSPEND_RESUME,
+    OpenThread, ResumeThread, CREATE_NO_WINDOW, CREATE_SUSPENDED, THREAD_SUSPEND_RESUME,
 };
 
 /// 一个作业对象。丢弃它就会终止里面的所有进程 —— 那是 `KILL_ON_JOB_CLOSE` 的效果。
@@ -98,10 +98,15 @@ impl Drop for JobObject {
 }
 
 /// 以挂起状态启动进程，等调用方把作业安排好了再 [`resume`]。
+///
+/// `CREATE_NO_WINDOW` 必须和 `CREATE_SUSPENDED` 一起在这里设：
+/// `CommandExt::creation_flags` 是**赋值**而不是按位或，调用方先设一个、这里再设一个，
+/// 第二个会把第一个覆盖掉。实测过被覆盖的后果 —— `cmd.exe /c pi-web` 带着控制台起来，
+/// Windows Terminal 给它开了一个新标签页。
 pub fn spawn_suspended(command: &mut Command) -> io::Result<Child> {
     use std::os::windows::process::CommandExt;
 
-    command.creation_flags(CREATE_SUSPENDED.0);
+    command.creation_flags(CREATE_SUSPENDED.0 | CREATE_NO_WINDOW.0);
     command.spawn()
 }
 

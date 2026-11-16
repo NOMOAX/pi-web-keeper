@@ -165,13 +165,15 @@ impl ServiceKeeper {
              * C# 版的 `ProcessStartInfo("cmd.exe", $"/c {config.StartCommand}")`
              * 就是那样的：整串原样传过去，没有第二层引号。
              * 换成 `arg` 的话，`node -e "..."` 这种命令会被搞坏。
+             *
+             * 创建标志不在这里设：`creation_flags` 是赋值而不是按位或，
+             * 早点设的会被 `spawn_suspended` 覆盖掉（见那里）。
              */
             .raw_arg(format!("/c {}", self.config.start_command))
             .current_dir(command::working_directory())
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .creation_flags(CREATE_NO_WINDOW.0);
+            .stderr(Stdio::piped());
 
         let mut child = process_ext::spawn_suspended(&mut command)
             .map_err(|error| format!("启动服务进程失败：{error}"))?;
