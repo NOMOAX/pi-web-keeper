@@ -1,30 +1,27 @@
-//! 界面字体：**内嵌**的微软雅黑。
+//! 界面字体：**内嵌**的思源黑体（Source Han Sans SC Regular）。
 //!
-//! 字体在构建期从 `%WINDIR%\Fonts\msyh.ttc` 取，`build.rs` 把它复制到 `OUT_DIR`，
-//! 这里用 `include_bytes!` 编进 exe —— 运行时不再读系统字体，也不去系统里挑候选。
+//! 字体文件就是 `assets/fonts/NotoSansSC-Regular.otf`，随仓库走、编译进来，
+//! 运行时既不读系统字体，也不去系统里挑候选。
 //!
 //! 几个决定是显式定下来的：
-//!   - 只有一款字体。候选表（黑体 → 等线 → 楷体 → 仿宋 → 隶书）会让同一份程序在不同机器上
-//!     长成不同的样子，而字体是外观的一部分，不该由机器决定。
-//!   - 微软雅黑而不是 WPF 版用的 NSimSun：egui 走 `ab_glyph`，只画轮廓，
-//!     宋体那套小字号点阵用不上，12 号以下会发糊；雅黑的字形本来就是为屏显做的。
+//!   - 只有一款字体。之前那张候选表（黑体 → 等线 → 楷体 → 仿宋 → 隶书）会让同一份程序
+//!     在不同机器上长成不同的样子，而字体是外观的一部分，不该由机器决定。
+//!   - 无衬线而不是 WPF 版用的 NSimSun：egui 走 `ab_glyph`，只画轮廓，
+//!     宋体那套小字号点阵用不上，12 号以下会发糊。
+//!   - 开源字体而不是微软雅黑：雅黑随 Windows 授权使用，编进对外分发的 exe
+//!     等于再分发它。思源黑体是 SIL OFL 1.1，可以随程序分发 ——
+//!     条件是**许可全文要跟着一起发**（见 `assets/fonts/LICENSE.txt`，发布包里要带上）。
 //!
-//! 代价写在这里，免得下一个人以为是免费的：`msyh.ttc` 是 18.8 MB，
-//! 也就是说这个 exe 有大半体积是它。真要压，办法是对字表做子集化（日志里的文本是动态的，
-//! 子集要按 GBK 常用字来划，别只按界面文案划）。
-//!
-//! 还有一条不是技术问题：微软雅黑随 Windows 授权使用，把它编进对外分发的 exe
-//! 等于再分发这款字体，那需要微软的许可。自己用没关系，发 release 之前要留意。
-//!
-//! `msyh.ttc` 是字体集合（YaHei / YaHei UI / YaHei Light 三家），所以要指定 `index`；
-//! `epaint` 把它传给 `ab_glyph::FontVec::try_from_vec_and_index`，索引 0 是 YaHei 本体。
+//! `NotoSansSC-Regular.otf` 是 Noto CJK 项目里「SubsetOTF / SC」那一档：
+//! 思源黑体的简体中文子集，单一字重、单面 OTF，8 MB。
+//! 全量思源黑体带日韩字形，要大一倍多，而这个程序的界面只有简体中文和拉丁字符。
 
 use egui::{Context, FontData, FontDefinitions, FontFamily};
 
-/// 构建期由 `build.rs` 放进 `OUT_DIR` 的字体。
-const FONT_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/msyh.ttc"));
+/// 构建期编进来的字体。
+const FONT_BYTES: &[u8] = include_bytes!("../assets/fonts/NotoSansSC-Regular.otf");
 
-/// 字体集合里的第几张：0 = Microsoft YaHei。
+/// 单面 OTF，不需要选字面。
 const FONT_INDEX: u32 = 0;
 
 /// 字体在 egui 里的键名。
@@ -41,7 +38,7 @@ pub fn install(context: &Context) -> String {
 
     /*
      * 两个字族都排在第一位：比例字族给按钮，等宽字族给日志。
-     * egui 自带的字体退到后面当兜底 —— 雅黑里没有的字（某些符号、emoji）
+     * egui 自带的字体退到后面当兜底 —— 思源黑体里没有的字（某些符号、emoji）
      * 才不会变成方框。
      */
     for family in [FontFamily::Proportional, FontFamily::Monospace] {
@@ -54,5 +51,5 @@ pub fn install(context: &Context) -> String {
 
     context.set_fonts(fonts);
 
-    format!("微软雅黑（内嵌，{} KB）", FONT_BYTES.len() / 1024)
+    format!("思源黑体 SC Regular（内嵌，{} KB）", FONT_BYTES.len() / 1024)
 }
