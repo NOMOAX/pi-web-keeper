@@ -7,13 +7,15 @@
 //! 这里所有阻塞操作都跑在后台线程上，UI 只读状态、只发命令，所以同步代码就够了 ——
 //! 少一套 `ConfigureAwait` 与「输掉的那条 Task 没人 await」的心智负担。
 
+use std::os::windows::process::CommandExt;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use windows::Win32::System::SystemInformation::{GetLocalTime, SYSTEMTIME};
+use windows::Win32::Foundation::SYSTEMTIME;
+use windows::Win32::System::SystemInformation::GetLocalTime;
 use windows::Win32::System::Threading::CREATE_NO_WINDOW;
 
 use crate::app_window;
@@ -71,22 +73,12 @@ impl ServiceKeeper {
         }
     }
 
-    /// 配置的只读视图。
-    pub fn config(&self) -> &KeeperConfig {
-        &self.config
-    }
-
     /// 端口上是否有服务在监听。
     ///
     /// 与「进程是否由我们持有」不同：服务可能是启动器之外拉起来的，
     /// 此时进程不由我们持有，但端口是活的。
     pub fn is_port_listening(&self) -> bool {
         port::is_listening(self.config.port)
-    }
-
-    /// 我们持有的服务进程是否还活着。
-    pub fn is_running(&self) -> bool {
-        self.inner.lock().map(|inner| inner.child.is_some()).unwrap_or(false)
     }
 
     /// 启动服务。
@@ -412,8 +404,12 @@ impl ServiceKeeper {
         }
     }
 
-    fn emit_message(&self, message: String) {
-        let _ = self.events.send(Event::Message(format!("{} {message}", timestamp())));
+    fn emit_message(&self, message: impl Into<String>) {
+        let _ = self.events.send(Event::Message(format!(
+            "{} {}",
+            timestamp(),
+            message.into()
+        )));
     }
 
     fn emit_state(&self, state: impl Into<String>) {
@@ -423,12 +419,8 @@ impl ServiceKeeper {
 
 /// `[HH:mm:ss]`，取系统本地时间。
 fn timestamp() -> String {
-    let mut now = SYSTEMTIME::default();
-
-    // SAFETY: 只写这一个结构体
-    unsafe {
-        GetLocalTime(&mut now);
-    }
+    // SAFETY: 绑定库包好了缓冲区，返回值就是结构体本身
+    let now: SYSTEMTIME = unsafe { GetLocalTime() };
 
     format!("[{:02}:{:02}:{:02}]", now.wHour, now.wMinute, now.wSecond)
 }

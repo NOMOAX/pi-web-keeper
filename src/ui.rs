@@ -24,7 +24,8 @@ pub fn run(handle: Handle, start_on_launch: bool) -> eframe::Result<()> {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([640.0, 480.0])
             .with_min_inner_size([640.0, 480.0])
-            .with_maximizable(false)
+            // 只去掉最大化按钮，窗口仍可缩放 —— 与 XAML 版清 WS_MAXIMIZEBOX 是同一件事
+            .with_maximize_button(false)
             .with_title("Pi Web Keeper")
             // 启动流程跑完之前不露面：成功的话这个窗口自始至终没见过，
             // 启动时窗口本来就没显示过，失败时它自己会出来

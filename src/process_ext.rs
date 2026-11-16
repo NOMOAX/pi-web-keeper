@@ -131,7 +131,7 @@ pub fn resume(child: &Child) -> io::Result<()> {
     loop {
         if entry.th32OwnerProcessID == process_id {
             // SAFETY: 线程 ID 来自快照，OpenThread 失败会返回错误而不是空句柄
-            let thread = unsafe { OpenThread(THREAD_SUSPEND_RESUME, BOOL(0), entry.th32ThreadId) }
+            let thread = unsafe { OpenThread(THREAD_SUSPEND_RESUME, BOOL(0), entry.th32ThreadID) }
                 .map_err(|error| io::Error::from_raw_os_error(error.code().0))?;
 
             let thread = HandleGuard(thread);

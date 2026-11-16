@@ -11,7 +11,7 @@
 //!
 //! 于是窗口画不画，与服务跑不跑，互不相干。
 
-use std::sync::mpsc::{Receiver, Sender, TryRecvError};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -172,8 +172,8 @@ fn run(handle: Handle, config: Option<KeeperConfig>, inbox: Receiver<Command>) {
                 // 托盘左键与「第二个实例来敲门」走同一条路：置一个一次性标志
                 handle.lock().show_window = true;
             }
-            Err(TryRecvError::Disconnected) => return,
-            Err(TryRecvError::Empty) => {}
+            Err(RecvTimeoutError::Disconnected) => return,
+            Err(RecvTimeoutError::Timeout) => {}
         }
 
         drain_events(&handle, &event_rx);

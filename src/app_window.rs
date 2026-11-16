@@ -6,23 +6,19 @@
 //! 这是整个重写里 COM 最琐碎的一块，做法与 C# 版逐处对齐 —— 包括那条
 //! 「GetValue 对存在的属性返回 S_FALSE 而不是 S_OK」的注意事项。
 
-use windows::core::{Interface, GUID, PCWSTR};
+use windows::core::{GUID, PROPVARIANT, PWSTR};
 use windows::Win32::Foundation::{BOOL, HWND, LPARAM, WPARAM};
-use windows::Win32::System::Com::{CoTaskMemFree, StructuredStorage::PROPVARIANT};
-use windows::Win32::UI::Shell::PropertiesSystem::{IPropertyStore, PROPERTYKEY};
-use windows::Win32::UI::Shell::SHGetPropertyStoreForWindow;
+use windows::Win32::UI::Shell::PropertiesSystem::{
+    IPropertyStore, PROPERTYKEY, SHGetPropertyStoreForWindow,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetClassNameW, IsWindowVisible, PostMessageW, WM_CLOSE,
 };
 
 /// PROPVARIANT 的 vt 取值：VT_LPWSTR(31)，表示联合体里是一个 UTF-16 字符串指针。
+///
+/// 绑定库里没有导出这个常量，按头文件的值写死。
 const VARIANT_TYPE_UTF16_STRING: u16 = 31;
-
-/// PROPVARIANT 在 x64 上的大小。
-const PROPVARIANT_SIZE: usize = 24;
-
-/// 联合体在 PROPVARIANT 里的偏移（x64）。
-const PROPVARIANT_UNION_OFFSET: usize = 8;
 
 /// Chromium 的顶层窗口类。
 ///
@@ -113,62 +109,38 @@ unsafe extern "system" fn collect_window(window: HWND, l_param: LPARAM) -> BOOL 
 
 /// 读取窗口的 AUMID；窗口没有设置 AUMID 时返回 `None`。
 unsafe fn window_app_user_model_id(window: HWND) -> windows::core::Result<Option<String>> {
-    // SAFETY: window 有效；接口标识由 IPropertyStore 自带
-    let store: IPropertyStore = unsafe {
-        let mut raw: *mut std::ffi::c_void = std::ptr::null_mut();
-
-        SHGetPropertyStoreForWindow(window, &IPropertyStore::IID, &mut raw)?;
-
-        IPropertyStore::from_raw(raw)
-    };
+    // SAFETY: window 有效；要哪个接口由泛型参数指定
+    let store: IPropertyStore = unsafe { SHGetPropertyStoreForWindow(window) }?;
 
     /*
-     * PROPVARIANT 按字节读，不依赖绑定库给这个联合体起的名字。
-     * 布局是固定的：vt 在偏移 0，联合体在偏移 8，x64 上整个结构 24 字节。
+     * 注意：GetValue 对存在的属性返回 S_FALSE(0x1) 而不是 S_OK。
+     * 绑定库把 S_FALSE 当成功处理，所以能走到这里 ——
+     * 但也不能因此认为「拿到了字符串」，下面的 vt 判断才是真正的依据。
      */
-    let mut raw_value = [0u8; PROPVARIANT_SIZE];
+    // SAFETY: store 有效，key 指向一个静态常量
+    let value: PROPVARIANT = unsafe { store.GetValue(&PKEY_APP_USER_MODEL_ID) }?;
 
-    // SAFETY: GetValue 写一个 PROPVARIANT；raw_value 足够大且按 8 字节对齐
-    let read = unsafe {
-        store.GetValue(
-            &PKEY_APP_USER_MODEL_ID,
-            raw_value.as_mut_ptr().cast::<PROPVARIANT>(),
-        )
-    };
+    let raw = value.as_raw();
 
-    /*
-     * 注意：GetValue 对存在的属性返回 S_FALSE(0x1) 而不是 S_OK，
-     * 所以不能靠 HRESULT 判断是否拿到了字符串 —— 只能看 vt。
-     * windows-rs 把 S_FALSE 当作成功返回 Ok，正合需要。
-     */
-    if read.is_err() {
-        return Ok(None);
-    }
-
-    let variant_type = u16::from_ne_bytes([raw_value[0], raw_value[1]]);
+    // SAFETY: 读联合体里那个已经写好的 vt 字段
+    let variant_type: u16 = unsafe { raw.Anonymous.Anonymous.vt };
 
     if variant_type != VARIANT_TYPE_UTF16_STRING {
         return Ok(None);
     }
 
-    let pointer_bytes: [u8; 8] = raw_value[PROPVARIANT_UNION_OFFSET..PROPVARIANT_UNION_OFFSET + 8]
-        .try_into()
-        .expect("切片长度固定为 8");
-
-    // SAFETY: 低 8 字节原样还原成指针
-    let pointer = unsafe { std::ptr::read_unaligned(pointer_bytes.as_ptr().cast::<*mut u16>()) };
+    // SAFETY: vt 说明联合体里就是一个 UTF-16 字符串指针
+    let pointer = unsafe { raw.Anonymous.Anonymous.Anonymous.pwszVal };
 
     if pointer.is_null() {
         return Ok(None);
     }
 
-    // SAFETY: vt 说明联合体里就是这个字符串；它归调用方所有，读完整份
-    let text = unsafe { PCWSTR::from_raw(pointer).to_string() };
-
-    // SAFETY: 这个指针是 shell 用 CoTaskMemAlloc 分配的，读完必须还回去
-    unsafe {
-        CoTaskMemFree(Some(pointer.cast()));
-    }
+    /*
+     * 字符串不在这里释放：PROPVARIANT 的 Drop 会调 PropVariantClear，
+     * 而它归我们所有。C# 版要手写 CoTaskMemFree，是因为那边读的是裸结构。
+     */
+    let text = unsafe { PWSTR::from_raw(pointer).to_string() }?;
 
     Ok(Some(text))
 }

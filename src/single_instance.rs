@@ -76,11 +76,14 @@ impl SingleInstance {
     where
         F: Fn() + Send + 'static,
     {
-        let activation_event = self.activation_event;
+        // 句柄是裸指针，不实现 Send：跨线程只搬数值，进去再拼回来
+        let activation_raw = self.activation_event.0 as usize;
 
         std::thread::Builder::new()
             .name("PiWebKeeper.SingleInstanceListener".to_owned())
             .spawn(move || loop {
+                let activation_event = HANDLE(activation_raw as *mut core::ffi::c_void);
+
                 // SAFETY: 句柄归 SingleInstance 所有，它比这个线程活得久
                 let waited = unsafe { WaitForSingleObject(activation_event, INFINITE) };
 

@@ -4,6 +4,8 @@
 > [!NOTE]
 > 这是 `rust` 分支：启动器正在用 Rust 重写。
 > `main` 分支上的 C# / WPF 实现保持原样，是当前可用的版本；这个分支在重写完成之前不合并回去。
+>
+> 合并之前必须先重写 `AGENTS.md` —— 它现在描述的仍是 WPF 实现，其中约四成内容（焦点、字体、样式位、`WindowStartupLocation` 那套实测）在 Rust 版里不成立。
 
 # Pi Web Keeper
 

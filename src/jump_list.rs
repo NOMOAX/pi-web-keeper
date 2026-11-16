@@ -12,17 +12,15 @@
 //!
 //! 每次启动都要重写一遍：Windows 会因为超限或用户清空「最近使用」把它丢掉。
 
-use windows::core::{Interface, HSTRING, PCWSTR};
+use windows::core::{GUID, HSTRING, Interface, PROPVARIANT};
 use windows::Win32::System::Com::{
-    CoCreateInstance, CoInitializeEx, StructuredStorage::PROPVARIANT, CLSCTX_INPROC_SERVER,
-    COINIT_APARTMENTTHREADED,
+    CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED,
 };
+use windows::Win32::UI::Shell::Common::{IObjectArray, IObjectCollection};
 use windows::Win32::UI::Shell::PropertiesSystem::{IPropertyStore, PROPERTYKEY};
 use windows::Win32::UI::Shell::{
-    ICustomDestinationList, IObjectArray, IObjectCollection, IShellLinkW, SetCurrentProcessExplicitAppUserModelID,
-    CLSID_DestinationList, CLSID_EnumerableObjectCollection, CLSID_ShellLink,
+    ICustomDestinationList, IShellLinkW, SetCurrentProcessExplicitAppUserModelID,
 };
-use windows::Win32::Foundation::GUID;
 
 /// 启动器自己的 AppUserModelID。
 ///
@@ -49,6 +47,18 @@ const PKEY_TITLE: PROPERTYKEY = PROPERTYKEY {
     pid:   2,
 };
 
+/// CLSID_ShellLink：{00021401-0000-0000-C000-000000000046}。
+///
+/// 绑定库里没有导出这几个 CLSID，按头文件写死。
+const CLSID_SHELL_LINK: GUID = GUID::from_u128(0x0002_1401_0000_0000_C000_0000_0000_0046);
+
+/// CLSID_DestinationList：{77F10CF0-3DB5-4966-B520-B7C54FD35ED6}。
+const CLSID_DESTINATION_LIST: GUID = GUID::from_u128(0x77F1_0CF0_3DB5_4966_B520_B7C5_4FD3_5ED6);
+
+/// CLSID_EnumerableObjectCollection：{2D3468C1-36A7-43B6-AC24-D3F02FD9607A}。
+const CLSID_ENUMERABLE_OBJECT_COLLECTION: GUID =
+    GUID::from_u128(0x2D34_68C1_36A7_43B6_AC24_D3F0_2FD9_607A);
+
 /// 登记跳转列表。失败不致命：没有它，程序照常工作，只是开始菜单里少一行。
 pub fn install() -> Result<(), String> {
     // SAFETY: 单线程 COM 初始化；已经初始化过会返回 S_FALSE，同样可用
@@ -57,11 +67,10 @@ pub fn install() -> Result<(), String> {
     if initialized.is_err() {
         // RPC_E_CHANGED_MODE 说明这个线程已经用别的模型初始化过 COM。
         // 跳转列表用不到代理，继续往下走。
-        let code = initialized.0;
         const RPC_E_CHANGED_MODE: i32 = 0x8001_0106u32 as i32;
 
-        if code != RPC_E_CHANGED_MODE {
-            return Err(format!("COM 初始化失败：0x{code:08X}"));
+        if initialized.0 != RPC_E_CHANGED_MODE {
+            return Err(format!("COM 初始化失败：0x{:08X}", initialized.0));
         }
     }
 
@@ -70,13 +79,13 @@ pub fn install() -> Result<(), String> {
         .to_string_lossy()
         .into_owned();
 
-    // SAFETY: 字符串在调用期间有效
+    // SAFETY: 下面全是 COM 调用，参数在调用期间都有效
     unsafe {
         SetCurrentProcessExplicitAppUserModelID(&HSTRING::from(APP_USER_MODEL_ID))
             .map_err(|error| format!("设置 AppUserModelID 失败：{error}"))?;
 
         let destinations: ICustomDestinationList =
-            CoCreateInstance(&CLSID_DestinationList, None, CLSCTX_INPROC_SERVER)
+            CoCreateInstance(&CLSID_DESTINATION_LIST, None, CLSCTX_INPROC_SERVER)
                 .map_err(|error| format!("创建跳转列表失败：{error}"))?;
 
         let mut max_slots = 0u32;
@@ -86,7 +95,7 @@ pub fn install() -> Result<(), String> {
             .BeginList(&mut max_slots)
             .map_err(|error| format!("开始写跳转列表失败：{error}"))?;
 
-        let link: IShellLinkW = CoCreateInstance(&CLSID_ShellLink, None, CLSCTX_INPROC_SERVER)
+        let link: IShellLinkW = CoCreateInstance(&CLSID_SHELL_LINK, None, CLSCTX_INPROC_SERVER)
             .map_err(|error| format!("创建快捷方式失败：{error}"))?;
 
         let path = HSTRING::from(executable.as_str());
@@ -104,7 +113,7 @@ pub fn install() -> Result<(), String> {
             .cast()
             .map_err(|error| format!("取快捷方式属性存储失败：{error}"))?;
 
-        let title = PROPVARIANT::from(&HSTRING::from(TASK_TITLE));
+        let title = PROPVARIANT::from(TASK_TITLE);
 
         store
             .SetValue(&PKEY_TITLE, &title)
@@ -115,7 +124,7 @@ pub fn install() -> Result<(), String> {
             .map_err(|error| format!("提交任务标题失败：{error}"))?;
 
         let collection: IObjectCollection =
-            CoCreateInstance(&CLSID_EnumerableObjectCollection, None, CLSCTX_INPROC_SERVER)
+            CoCreateInstance(&CLSID_ENUMERABLE_OBJECT_COLLECTION, None, CLSCTX_INPROC_SERVER)
                 .map_err(|error| format!("创建任务集合失败：{error}"))?;
 
         collection

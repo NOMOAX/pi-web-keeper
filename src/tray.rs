@@ -150,7 +150,8 @@ fn sync_menu(
 /// 优先用 exe 自己的图标资源；取不到就退回一个纯色方块 ——
 /// 窗口收起来之后托盘是唯一入口，难看一点的图标总好过一个进不去的窗口。
 fn load_icon() -> Icon {
-    if let Ok(icon) = Icon::from_resource(None, Some((32, 32))) {
+    // 资源号 1：build.rs 用 winresource 把 .ico 编在 1 号上
+    if let Ok(icon) = Icon::from_resource(1, Some((32, 32))) {
         return icon;
     }
 

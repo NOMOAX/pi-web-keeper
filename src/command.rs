@@ -16,7 +16,11 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use windows::Win32::Foundation::{BOOL, CloseHandle};
-use windows::Win32::System::Threading::CREATE_NO_WINDOW;
+use windows::Win32::System::Threading::{CREATE_NO_WINDOW, PROCESS_ACCESS_RIGHTS};
+
+// PROCESS_ACCESS_RIGHTS(SYNCHRONIZE) 的值：绑定库把这个常量放在文件系统那一族里，
+// 而 OpenProcess 要的是进程那一族，所以这里直接用数值。
+const PROCESS_SYNCHRONIZE: PROCESS_ACCESS_RIGHTS = PROCESS_ACCESS_RIGHTS(0x0010_0000);
 
 /// 隐藏模式：等指定进程退出，再把本程序重新拉起来。
 pub const TAKE_OVER_FLAG: &str = "--take-over";
@@ -143,10 +147,6 @@ fn is_alive(process_id: u32) -> bool {
 fn open_for_wait(process_id: u32) -> windows::core::Result<windows::Win32::Foundation::HANDLE> {
     // SAFETY: pid 由调用方给出；失败返回错误而不是空句柄
     unsafe {
-        windows::Win32::System::Threading::OpenProcess(
-            windows::Win32::System::Threading::SYNCHRONIZE,
-            BOOL(0),
-            process_id,
-        )
+        windows::Win32::System::Threading::OpenProcess(PROCESS_SYNCHRONIZE, BOOL(0), process_id)
     }
 }
