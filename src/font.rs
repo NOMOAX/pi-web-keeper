@@ -27,8 +27,10 @@ const FONT_INDEX: u32 = 0;
 /// 字体在 egui 里的键名。
 const FONT_KEY: &str = "PiWebKeeper.Ui";
 
-/// 装上内嵌字体，返回结果描述（给日志用）。
-pub fn install(context: &Context) -> String {
+/// 装上内嵌字体。
+///
+/// 不报告用了哪款字体：它就在这个可执行文件里，是固定的，没有「用了哪个」可言。
+pub fn install(context: &Context) {
     let mut fonts = FontDefinitions::default();
 
     let mut data = FontData::from_static(FONT_BYTES);
@@ -50,6 +52,4 @@ pub fn install(context: &Context) -> String {
     }
 
     context.set_fonts(fonts);
-
-    format!("思源黑体 SC Regular（内嵌，{} KB）", FONT_BYTES.len() / 1024)
 }

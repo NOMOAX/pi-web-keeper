@@ -25,6 +25,12 @@ use crate::service::{Event, ServiceKeeper};
 /// 界面每帧都要排版这一整块文本，行数增长就是每帧代价线性增长。
 const LOG_LINE_LIMIT: usize = 2000;
 
+/// 清空日志后留在框里的那一行。
+///
+/// 不留下空白：空白分不清「程序还没写过日志」与「日志刚被清掉」，
+/// 而留一行就能分清。
+pub const CLEARED_PLACEHOLDER: &str = "----- Message cleared. -----";
+
 /// 界面能做、托盘也能做的四件事，加上两个单向动作。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Command {
@@ -93,9 +99,12 @@ impl Shared {
         }
     }
 
-    /// 清空日志。
+    /// 清空日志：留下占位的一行，而不是空列表。
+    ///
+    /// 空列表与「程序还没写过一行」在界面上长得一样，而这两件事不该长得一样。
     pub fn clear_log(&mut self) {
         self.log.clear();
+        self.log.push(CLEARED_PLACEHOLDER.to_owned());
         self.log_revision = self.log_revision.wrapping_add(1);
     }
 }

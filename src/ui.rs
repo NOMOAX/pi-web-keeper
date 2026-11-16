@@ -6,7 +6,7 @@
 //! 与 XAML 版的对照：
 //!   - 640×480、不可最大化、`CenterScreen` → `NativeOptions` / `ViewportBuilder`
 //!   - 一行四个 80×40、间距 8 → `add_sized` + `item_spacing`
-//!   - 只读多行 `TextBox` + 右键菜单（复制／清空）→ `TextEdit` + `context_menu`
+//!   - 只读多行 `TextBox` + 右键菜单（清空）→ `TextEdit` + `context_menu`
 //!   - 点空白处清焦点 → egui 本来就不给面板焦点，这条不用写
 
 use eframe::egui;
@@ -47,13 +47,13 @@ pub fn run(handle: Handle, start_on_launch: bool) -> eframe::Result<()> {
 
             context.set_visuals(egui::Visuals::dark());
 
-            let font_note = font::install(context);
+            font::install(context);
 
             // 窗口已经建好但还没画过：改样式要趁现在，等到第一帧再改，
             // 系统已经把最大化按钮画上去了，清掉样式位也只会把它画成灰的
             prepare_window(&creation, context.clone());
 
-            Ok(Box::new(KeeperApp::new(handle, start_on_launch, font_note)))
+            Ok(Box::new(KeeperApp::new(handle, start_on_launch)))
         }),
     )
 }
@@ -73,23 +73,15 @@ struct KeeperApp {
 
     /// 还没执行过的「启动时自动启动服务」。
     start_on_launch: bool,
-
-    /// 字体实际用上了哪个，写进日志的第一行。
-    font_note: String,
-
-    /// 字体说明是否已写进日志。
-    font_noted: bool,
 }
 
 impl KeeperApp {
-    fn new(handle: Handle, start_on_launch: bool, font_note: String) -> Self {
+    fn new(handle: Handle, start_on_launch: bool) -> Self {
         Self {
             handle,
             log_view: String::new(),
             log_revision: 0,
             start_on_launch,
-            font_note,
-            font_noted: false,
         }
     }
 
@@ -126,11 +118,6 @@ impl eframe::App for KeeperApp {
                 shared.log.clone(),
             )
         };
-
-        if !self.font_noted {
-            self.font_noted = true;
-            self.handle.lock().push_line(format!("字体：{}", self.font_note));
-        }
 
         self.sync_log(&lines, revision);
 
@@ -267,11 +254,6 @@ impl eframe::App for KeeperApp {
                     let mut cleared = false;
 
                     response.context_menu(|ui| {
-                        if ui.button("复制").clicked() {
-                            ui.ctx().copy_text(self.log_view.clone());
-                            ui.close_menu();
-                        }
-
                         if ui.button("清空").clicked() {
                             cleared = true;
                             ui.close_menu();
@@ -283,8 +265,9 @@ impl eframe::App for KeeperApp {
                 .inner;
 
             if clear {
+                // 只清共享日志；影子缓冲下一帧跟着 revision 一起重建，
+                // 在这里顺手改它会被 sync_log 覆盖掉。
                 self.handle.lock().clear_log();
-                self.log_view = CLEARED_PLACEHOLDER.to_owned();
             }
         });
 
@@ -296,11 +279,6 @@ impl eframe::App for KeeperApp {
         context.request_repaint_after(std::time::Duration::from_millis(100));
     }
 }
-
-/// 清空消息框后留在框里的那句话。
-///
-/// 不留下空白：空白分不清「程序还没写过日志」与「日志刚被清掉」，而留一句话就能分清。
-const CLEARED_PLACEHOLDER: &str = "----- Message cleared. -----";
 
 /// 取掉窗口的最大化按钮。
 ///
