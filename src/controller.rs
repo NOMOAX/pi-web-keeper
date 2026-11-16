@@ -385,6 +385,8 @@ fn run_update(handle: &Handle, keeper: Option<&ServiceKeeper>) {
      * 一条命令退出码非零就停下：后面的命令更新的是另一份包，
      * 在前一步已经出错的情况下继续跑，只会把失败的事搅成一团。
      */
+    let mut completed = true;
+
     for command_line in ["pi update --all", "pi-web update"] {
         handle.lock().push_line(format!("执行：{command_line}"));
 
@@ -401,13 +403,20 @@ fn run_update(handle: &Handle, keeper: Option<&ServiceKeeper>) {
                     "更新中止：{command_line} 退出码 {code}，后面的命令不再执行。"
                 ));
 
+                completed = false;
                 break;
             }
             Err(error) => {
                 handle.lock().push_line(format!("更新失败：{error}"));
+
+                completed = false;
                 break;
             }
         }
+    }
+
+    if completed {
+        handle.lock().push_line("更新完成。".to_owned());
     }
 
     let mut shared = handle.lock();
