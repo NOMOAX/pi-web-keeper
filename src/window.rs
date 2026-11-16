@@ -13,7 +13,7 @@ use std::sync::OnceLock;
 
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{
-    IsIconic, SetForegroundWindow, ShowWindow, SW_HIDE, SW_RESTORE, SW_SHOW,
+    IsIconic, IsWindowVisible, SetForegroundWindow, ShowWindow, SW_HIDE, SW_RESTORE, SW_SHOW,
 };
 
 /// 主窗口句柄。窗口创建时写入一次。
@@ -64,6 +64,18 @@ pub fn hide() {
     unsafe {
         let _ = ShowWindow(window, SW_HIDE);
     }
+}
+
+/// 窗口现在是否显示在屏幕上。
+///
+/// 托盘左键是个开关，方向靠它决定。
+pub fn is_visible() -> bool {
+    let Some(window) = handle() else {
+        return false;
+    };
+
+    // SAFETY: 句柄在窗口存活期间有效
+    unsafe { IsWindowVisible(window).as_bool() }
 }
 
 fn handle() -> Option<HWND> {

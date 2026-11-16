@@ -43,8 +43,11 @@ pub enum Command {
     /// 停服务然后退出。
     Exit,
 
-    /// 把窗口从托盘里叫出来。
+    /// 把窗口从托盘里叫出来（第二个实例来敲门时用，不是开关）。
     ShowWindow,
+
+    /// 托盘左键：窗口在屏幕上就收起，藏着就拿出来。
+    ToggleWindow,
 }
 
 /// 后台与界面共享的状态。两边都只做「短锁 + 拷贝」。
@@ -166,9 +169,23 @@ fn run(handle: Handle, config: Option<KeeperConfig>, inbox: Receiver<Command>) {
                 run_update(&handle, keeper.as_ref());
             }
             Ok(Command::ShowWindow) => {
-                // 托盘左键与「第二个实例来敲门」走同一条路。
-                // 直接调 Win32：窗口藏起来之后界面不再重绘，置标志没人读（见 `window.rs`）。
+                /*
+                 * 直接调 Win32：窗口藏起来之后界面不再重绘，置标志没人读（见 `window.rs`）。
+                 * 这个动作**不是**开关：「再双击一次 exe」的语义是「把窗口给我看」，
+                 * 而不是「窗口开着就关掉」—— XAML 版那一条走的也是 `ShowFromTray`。
+                 */
                 crate::window::show();
+            }
+            Ok(Command::ToggleWindow) => {
+                /*
+                 * 托盘左键是开关，与 XAML 版一致
+                 * （那边是 `IsVisible && WindowState != Minimized` 时就隐藏）。
+                 */
+                if crate::window::is_visible() {
+                    crate::window::hide();
+                } else {
+                    crate::window::show();
+                }
             }
             Err(RecvTimeoutError::Disconnected) => return,
             Err(RecvTimeoutError::Timeout) => {}

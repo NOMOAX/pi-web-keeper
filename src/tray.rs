@@ -58,6 +58,13 @@ fn run(handle: Handle) {
 
     let Ok(tray) = TrayIconBuilder::new()
         .with_menu(Box::new(menu))
+        /*
+         * 左键不弹菜单：默认是**弹**的（`with_menu_on_left_click` 默认为真）。
+         * 那样左键一次会同时做两件事 —— 菜单盖上来，窗口在下面被叫出来 ——
+         * 用户看到的就是「左键弹出右键菜单，再点一下才把窗口换出来」。
+         * 左键在这个程序里只有一个意思：窗口在屏幕与托盘之间来回。
+         */
+        .with_menu_on_left_click(false)
         .with_tooltip("Pi Web Keeper")
         .with_icon(load_icon())
         .build()
@@ -110,7 +117,7 @@ fn run(handle: Handle) {
                 ..
             } = event
             {
-                handle.send(Command::ShowWindow);
+                handle.send(Command::ToggleWindow);
             }
         }
 
