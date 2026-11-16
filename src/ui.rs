@@ -111,11 +111,12 @@ impl KeeperApp {
 
 impl eframe::App for KeeperApp {
     fn update(&mut self, context: &egui::Context, _frame: &mut eframe::Frame) {
-        let (quit, revision, state, listening, busy, updating, exiting, has_config, lines) = {
+        let (quit, visible, revision, state, listening, busy, updating, exiting, has_config, lines) = {
             let shared = self.handle.lock();
 
             (
                 shared.quit,
+                shared.visible,
                 shared.log_revision,
                 shared.state.clone(),
                 shared.listening,
@@ -139,6 +140,29 @@ impl eframe::App for KeeperApp {
         }
 
         /*
+         * 每帧把实际可见状态拉回「该不该」。
+         *
+         * eframe 在第一帧画完之后会无条件把窗口显示出来（`window::remember` 那边有说明），
+         * 而启动成功的那一下要把窗口收起来——如果不在这里拉回来，用户就会看到
+         * 「先闪出来一下，然后隐藏」。
+         *
+         * `request_repaint` 不能省：藏完之后窗口不再重绘，不主动要一帧的话，
+         * 再下帧要等 100 毫秒，那 100 毫秒就是一个真的看得见的窗口。
+         */
+        if visible {
+            // 在屏幕外就把它展回来（否则它一直隐在 -32000 那个位置）
+            if crate::window::is_parked() {
+                crate::window::show();
+            }
+        } else if crate::window::is_visible() {
+            crate::window::hide();
+        }
+
+        if !visible {
+            context.request_repaint();
+        }
+
+        /*
          * 启动时直接走一遍「启动」，中间不显示窗口。
          * 这一条命令与按钮发的是同一个，只是不等结果。
          */
@@ -153,11 +177,13 @@ impl eframe::App for KeeperApp {
          */
         if context.input(|input| input.viewport().close_requested()) && !exiting {
             context.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.handle.lock().visible = false;
             crate::window::hide();
         }
 
         // 最小化也等于收进托盘：拦的是状态变化，所以按钮、系统菜单、自动收起都覆盖到了
         if context.input(|input| input.viewport().minimized).unwrap_or(false) {
+            self.handle.lock().visible = false;
             crate::window::hide();
         }
 
@@ -321,6 +347,12 @@ fn prepare_window(source: &impl raw_window_handle::HasWindowHandle, context: egu
     let window = windows::Win32::Foundation::HWND(win32.hwnd.get() as *mut core::ffi::c_void);
 
     crate::window::remember(window, context);
+
+    /*
+     * 先把窗口挪到屏幕外：eframe 会在第一帧画完之后无条件把它显示出来，
+     * 而启动成功时它自始至终不该露面。藏在屏幕外，那一下就没任何人看到。
+     */
+    crate::window::park();
 
     // SAFETY: 句柄来自 winit，在窗口存活期间有效
     unsafe {
