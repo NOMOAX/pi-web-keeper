@@ -8,6 +8,7 @@
 //! 把托盘挂在界面线程上，就等于「窗口藏起来之后点托盘没反应」。
 //! 托盘线程只做两件事：把点击翻译成 [`Command`]，把菜单文字与可用性同步成当前状态。
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
@@ -17,6 +18,16 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 use crate::controller::{Command, Handle};
+
+/// 程序要退出了。托盘线程看到它就把图标摘掉然后结束。
+static SHUTDOWN: AtomicBool = AtomicBool::new(false);
+
+/// 让托盘线程在退出前把图标摘掉。
+///
+/// 图标不摘会在通知区域留一块幽灵，要等鼠标划过去才消失。
+pub fn request_shutdown() {
+    SHUTDOWN.store(true, Ordering::SeqCst);
+}
 
 /// 起托盘线程。
 pub fn spawn(handle: Handle) {
@@ -59,10 +70,14 @@ fn run(handle: Handle) {
         return;
     };
 
-    // 托盘必须活到线程结束：Drop 会摘掉图标
-    let _keep_alive = tray;
+    // 托盘的 Drop 会摘掉图标，所以必须让它活到循环结束之前
+    let tray = tray;
 
     loop {
+        if SHUTDOWN.load(Ordering::SeqCst) {
+            break;
+        }
+
         pump_messages();
 
         while let Ok(event) = MenuEvent::receiver().try_recv() {
@@ -103,6 +118,8 @@ fn run(handle: Handle) {
 
         std::thread::sleep(Duration::from_millis(20));
     }
+
+    drop(tray);
 }
 
 /// 把菜单的文字与可用性同步成当前状态。

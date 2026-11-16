@@ -339,8 +339,16 @@ fn leave(handle: &Handle, keeper: Option<&ServiceKeeper>, kind: Kind) {
     shared.quit = true;
     drop(shared);
 
-    // 直接用 Win32 关：这条路上窗口可能正藏在托盘里，界面帧不会再来
-    crate::window::close();
+    /*
+     * 不能靠 egui 的关闭流程：窗口很可能正藏在托盘里，而藏着的窗口不再重绘，
+     * `App::update` 也就不再被调用 —— 实测：只发 `WM_CLOSE` 的话进程会留在后台，
+     * 服务停了、窗口没了，进程还在。
+     *
+     * 所以先让托盘线程把图标摘掉，再直接退进程。
+     */
+    crate::tray::request_shutdown();
+    std::thread::sleep(Duration::from_millis(400));
+    std::process::exit(0);
 }
 
 /// 跑一次更新。

@@ -120,6 +120,8 @@ impl ServiceKeeper {
         self.kill_process_tree();
 
         if !port::is_listening(self.config.port) {
+            self.emit_state("已停止");
+
             return;
         }
 
@@ -128,6 +130,8 @@ impl ServiceKeeper {
         let budget = timeout.unwrap_or(PORT_RELEASE_TIMEOUT);
 
         if port::wait_for_state(self.config.port, false, budget) {
+            self.emit_state("已停止");
+
             return;
         }
 
@@ -147,6 +151,8 @@ impl ServiceKeeper {
                 self.config.port
             ));
         }
+
+        self.emit_state("已停止");
     }
 
     /// 起进程、入作业、放行，并把输出接到日志上。

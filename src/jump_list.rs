@@ -4,11 +4,16 @@
 //! 所以它和托盘图标的右键菜单是两套完全不同的东西 ——
 //! 托盘菜单是我们自己画的，跳转列表是登记给 shell 的。
 //!
-//! 硬性前提：进程必须有显式 AppUserModelID，而且要在创建任何窗口之前设好。
-//! 两个连带后果：
-//!   - 任务栏图标的身份会从「按路径派生」变成这个显式 ID，已经固定过的旧项
-//!     不会带上跳转列表，要重新固定一次；
-//!   - 别跟 `settings.json` 里的 `AppUserModelId` 弄混 —— 那个是**被托管的 PWA** 的身份。
+//! 硬性前提：进程身份得和「开始菜单里那个固定项」一致，否则跳转列表不会出现在它上面。
+//!
+//! 这一条走过弯：一开始给进程设了显式 AppUserModelID（`PiWebKeeper.Launcher`），
+//! 跳转列表也确实写了（`CustomDestinations` 里有文件），但实测右键开始菜单里那个固定项
+//! 只出现标准菜单，没有「任务」分组。原因就出在身份上 —— 那个快捷方式没有设
+//! `System.AppUserModel.ID`，所以它的身份是**按目标路径推导**出来的，
+//! 而进程声明的却是另一个名字，两边对不上。
+//!
+//! 所以这里不再设显式 AUMID，让 shell 按 exe 路径为进程推导一个 —— 和那个快捷方式同一套规则。
+//! 代价：跳转列表跟着 exe 路径走，把安装目录改了就得重新固定一次。
 //!
 //! 每次启动都要重写一遍：Windows 会因为超限或用户清空「最近使用」把它丢掉。
 
@@ -18,14 +23,7 @@ use windows::Win32::System::Com::{
 };
 use windows::Win32::UI::Shell::Common::{IObjectArray, IObjectCollection};
 use windows::Win32::UI::Shell::PropertiesSystem::{IPropertyStore, PROPERTYKEY};
-use windows::Win32::UI::Shell::{
-    ICustomDestinationList, IShellLinkW, SetCurrentProcessExplicitAppUserModelID,
-};
-
-/// 启动器自己的 AppUserModelID。
-///
-/// 与 `settings.json` 里那个（被托管的 PWA）没有任何关系。
-pub const APP_USER_MODEL_ID: &str = "PiWebKeeper.Launcher";
+use windows::Win32::UI::Shell::{ICustomDestinationList, IShellLinkW};
 
 /// 任务那一行的文字。
 ///
@@ -81,9 +79,6 @@ pub fn install() -> Result<(), String> {
 
     // SAFETY: 下面全是 COM 调用，参数在调用期间都有效
     unsafe {
-        SetCurrentProcessExplicitAppUserModelID(&HSTRING::from(APP_USER_MODEL_ID))
-            .map_err(|error| format!("设置 AppUserModelID 失败：{error}"))?;
-
         let destinations: ICustomDestinationList =
             CoCreateInstance(&CLSID_DESTINATION_LIST, None, CLSCTX_INPROC_SERVER)
                 .map_err(|error| format!("创建跳转列表失败：{error}"))?;

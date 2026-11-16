@@ -11,9 +11,9 @@
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::OnceLock;
 
-use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::WindowsAndMessaging::{
-    IsIconic, PostMessageW, SetForegroundWindow, ShowWindow, SW_HIDE, SW_RESTORE, SW_SHOW, WM_CLOSE,
+    IsIconic, SetForegroundWindow, ShowWindow, SW_HIDE, SW_RESTORE, SW_SHOW,
 };
 
 /// 主窗口句柄。窗口创建时写入一次。
@@ -63,21 +63,6 @@ pub fn hide() {
     // SAFETY: 同上
     unsafe {
         let _ = ShowWindow(window, SW_HIDE);
-    }
-}
-
-/// 真的关掉窗口，程序随之退出。
-///
-/// 用 `WM_CLOSE` 而不是直接销毁：这条消息让 winit 走正常的关闭流程，
-/// egui 的 `App::on_exit` 与 renderer 的清理都会跑。
-pub fn close() {
-    let Some(window) = handle() else {
-        return;
-    };
-
-    // SAFETY: 同上
-    unsafe {
-        let _ = PostMessageW(window, WM_CLOSE, WPARAM(0), LPARAM(0));
     }
 }
 
