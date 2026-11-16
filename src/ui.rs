@@ -31,6 +31,7 @@ pub fn run(handle: Handle, start_on_launch: bool) -> eframe::Result<()> {
             .with_min_inner_size([624.0, 441.0])
             // 只去掉最大化按钮，窗口仍可缩放 —— 与 XAML 版清 WS_MAXIMIZEBOX 是同一件事
             .with_maximize_button(false)
+            .with_icon(std::sync::Arc::new(window_icon()))
             .with_title("Pi Web Keeper")
             /*
              * 创建时不显示，但这不是「启动期间不露面」——
@@ -48,7 +49,7 @@ pub fn run(handle: Handle, start_on_launch: bool) -> eframe::Result<()> {
         Box::new(move |creation| {
             let context = &creation.egui_ctx;
 
-            context.set_visuals(egui::Visuals::dark());
+            crate::theme::install(context);
 
             font::install(context);
 
@@ -337,5 +338,24 @@ fn prepare_window(source: &impl raw_window_handle::HasWindowHandle, context: egu
                 | windows::Win32::UI::WindowsAndMessaging::SWP_NOACTIVATE
                 | windows::Win32::UI::WindowsAndMessaging::SWP_FRAMECHANGED,
         );
+    }
+}
+
+/// 窗口图标。
+///
+/// 只能走这条路上，不能自己 `WM_SETICON`：eframe 在**第一帧之后**按 viewport 的设置
+/// 再设一次图标，viewport 里没有图标就等于把图标清掉，于是标题栏退回系统那个通用方块。
+/// 实测过 —— 创建窗口时手工 `WM_SETICON` 装上正确图标，第一帧一过就变回灰的；
+/// 换成这里的 `with_icon` 立刻正常。
+///
+/// 数据由 `build.rs` 从 `assets/PiWebKeeper.ico` 里最大的一帧解出来（256×256 RGBA）：
+/// 图标只有一份源文件，exe 资源（托盘、Explorer 用）与窗口用的是同一张图。
+fn window_icon() -> egui::IconData {
+    const SIZE: u32 = 256;
+
+    egui::IconData {
+        rgba: include_bytes!(concat!(env!("OUT_DIR"), "/window-icon.rgba")).to_vec(),
+        width: SIZE,
+        height: SIZE,
     }
 }

@@ -49,6 +49,8 @@ windows = { version = "0.58", features = [
 ] }
 
 [build-dependencies]
+# 把 .ico 里最大的一帧解成 RGBA，供窗口图标使用（见 build.rs）
+png        = "0.17"
 winresource = "0.1"
 
 [profile.release]

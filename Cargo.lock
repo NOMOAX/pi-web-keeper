@@ -2087,6 +2087,7 @@ dependencies = [
  "eframe",
  "egui",
  "json5",
+ "png 0.17.16",
  "raw-window-handle",
  "serde",
  "sha2",
