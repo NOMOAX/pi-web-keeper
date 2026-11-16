@@ -3,8 +3,7 @@
 //! 为什么不用进程或命令行匹配：Edge 会把多个 Web 应用窗口共置在同一进程里，
 //! 按进程杀会误伤普通浏览器窗口；只有窗口自己的 AUMID 才是稳定身份。
 //!
-//! 这是整个重写里 COM 最琐碎的一块，做法与 C# 版逐处对齐 —— 包括那条
-//! 「GetValue 对存在的属性返回 S_FALSE 而不是 S_OK」的注意事项。
+//! COM 里最琐碎的一块，注意 `GetValue` 对**存在**的属性返回 `S_FALSE` 而不是 `S_OK`。
 
 use windows::core::{GUID, PROPVARIANT, PWSTR};
 use windows::Win32::Foundation::{BOOL, HWND, LPARAM, WPARAM};
@@ -138,7 +137,7 @@ unsafe fn window_app_user_model_id(window: HWND) -> windows::core::Result<Option
 
     /*
      * 字符串不在这里释放：PROPVARIANT 的 Drop 会调 PropVariantClear，
-     * 而它归我们所有。C# 版要手写 CoTaskMemFree，是因为那边读的是裸结构。
+     * 而它归我们所有。
      */
     let text = unsafe { PWSTR::from_raw(pointer).to_string() }?;
 

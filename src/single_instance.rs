@@ -1,7 +1,7 @@
 //! 单实例门闸：同一个安装目录只允许一个启动器窗口。
 //!
-//! 名字与 C# 版完全一致（`Local\PiWebKeeper.Instance.<key>` 与 `...Activate.<key>`），
-//! 所以新旧两个实现在同一个目录里能认出彼此 —— 换实现的那一天不会变成两个实例同时跑。
+//! 名字格式是 `Local\PiWebKeeper.Instance.<key>` 与 `Local\PiWebKeeper.Activate.<key>`，
+//! **不要**改 —— 同一目录里新旧两份 exe 会各拿一把锁，于是两个启动器、两个服务。
 //!
 //! 为什么按安装目录而不是全局唯一：一个安装目录托管一个服务，多个目录就是多个服务。
 //! Pi Web 和别的服务各自一个目录，它们的启动器要能同时开着，所以互斥的名字必须带上目录。
@@ -138,8 +138,8 @@ fn activation_name(key: &str) -> String {
 /// 路径里有反斜杠、冒号、中文，直接拼进内核对象名不合法；
 /// 哈希也顺带避免把用户目录结构暴露在对象名里。
 ///
-/// 算法与 C# 版逐字节一致（小写化 → UTF-8 → SHA-256 → 前 8 字节 → 大写十六进制），
-/// 这样新旧两个 exe 才会算出同一个名字。
+/// 算法固定为「小写化 → UTF-8 → SHA-256 → 前 8 字节 → 大写十六进制」，**逐字节定死**：
+/// 换了它，同一目录里的新旧两份 exe 就互相看不见了。
 fn install_key() -> String {
     let normalized = crate::config::install_directory().to_string_lossy().to_lowercase();
 

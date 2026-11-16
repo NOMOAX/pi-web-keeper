@@ -34,8 +34,8 @@ fn main() {
      * 隐藏模式：等旧进程退出，再把自己重新拉起来。
      *
      * 这一段必须在单实例门闸之前 —— 它的全部意义就是「新实例要等旧实例真的退出」。
-     * 它也是 C# 版那段 PowerShell 脚本的替代品：同样的活，但没有命令行转义，
-     * 于是「路径里的空格把命令撕成两半」那个坑不存在。
+     * 用本程序自己的隐藏模式而不是外部脚本：同样是等一个 pid，
+     * 但没有命令行转义，「路径里的空格把命令撕成两半」那个坑不存在。
      */
     if let Some(position) = arguments.iter().position(|argument| argument == command::TAKE_OVER_FLAG) {
         let process_id = arguments

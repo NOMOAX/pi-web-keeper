@@ -2,8 +2,6 @@
 
 A Rust launcher for Windows — a GUI-subsystem exe (`windows_subsystem = "windows"`, so it owns no console) — that manages exactly one local WebUI service: it starts the service, waits for its port, opens the installed PWA in its own window, and sits in the notification area while it runs. A second button updates Pi itself.
 
-The implementation this replaced — C# / WPF, `main` up to `03675a3^` — is in git history and not in the tree. Where the notes below name it, they are saying what a decision was made against, not where to find code.
-
 `cargo build --release` produces `target/release/PiWebKeeper.exe`, one self-contained file: `.cargo/config.toml` links the CRT statically and `[profile.release]` uses `opt-level = "z"`, `lto`, `panic = "abort"` and `strip`. Measured 11.6 MB, of which 8.1 MB is the embedded font.
 
 Users get the exe from the GitHub release for that version — a zip holding `PiWebKeeper.exe`, a sample `settings.json`, `THIRD-PARTY-NOTICES.md` and `assets/fonts/LICENSE.txt`. The last two are not documentation: the font is SIL OFL 1.1, which obliges whoever redistributes it to ship the licence with it, and embedding it in the exe is redistribution. A release is tagged `v`-prefixed, made by the release rather than by hand (`gh release create v0.1.0 <zip> --title v0.1.0 --notes-file <notes>`).
@@ -12,7 +10,7 @@ Users get the exe from the GitHub release for that version — a zip holding `Pi
 
 The launcher's lifetime is the service's lifetime, and the kernel enforces it: the service tree lives in a Job Object created with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` (`src/process_ext.rs`), so the service dies with the launcher — a launcher crash included. The only two things that end this on purpose are the leave actions: `退出` stops the service and then exits, `重启程序` hands the job to a successor and exits (see [Restarting](#restarting)). The window is not the launcher — minimizing it and closing it both only put it in the tray. Starting the exe means starting the service (see [Launching](#launching)). Every change must hold this true.
 
-A second launcher in the same install directory is refused: `single_instance` holds a mutex named from the install directory's SHA-256 (first 8 bytes, uppercase hex), so a second launch signals the existing window and exits without starting anything. The key is per-directory on purpose — two install directories are two services and must coexist — and the names are byte-identical to the C# build's, which is why a C# exe and a Rust exe in one directory refuse each other rather than race.
+A second launcher in the same install directory is refused: `single_instance` holds a mutex named from the install directory's SHA-256 (first 8 bytes, uppercase hex), so a second launch signals the existing window and exits without starting anything. The key is per-directory on purpose — two install directories are two services and must coexist. The name format (`Local\PiWebKeeper.Instance.<key>` and `…Activate.<key>`) and the exact hash are fixed: change either and two builds of the launcher in one directory take two different locks, which is two launchers and two services.
 
 Four mechanisms carry the contract, and each is fragile in a way its signature does not show. Each has a comment at the site saying why — read it before changing the code, and keep it accurate after.
 
@@ -37,7 +35,7 @@ The refresh rates are what keeps the window and the menu in agreement without an
 
 - Comments and doc comments are Chinese, matching the rest of the repo. `///` carries the *why* for a type, a member or a function; `//` is for what happens inside a body.
 - `settings.json` describes one service and sits next to the exe. Hosting a second service means a second install directory, not a second entry here. The display name is not in it: it is the window title in `ui.rs`, which the tray tooltip repeats.
-- Config keys keep the C# build's PascalCase (`#[serde(rename_all = "PascalCase")]`), lowercase/camelCase accepted as aliases, so `main`'s `settings.json` stays readable byte for byte. The file is read from the exe's directory only, with no cwd fallback — a dev run needs a copy beside `target/release/`, and without one it shows `配置加载失败` and manages nothing.
+- Config keys are PascalCase (`#[serde(rename_all = "PascalCase")]`), lowercase and camelCase accepted as aliases: the `settings.json` people already have is written that way and has to keep working unchanged. The file is read from the exe's directory only, with no cwd fallback — a dev run needs a copy beside `target/release/`, and without one it shows `配置加载失败` and manages nothing.
 - External commands — the service, the updaters, `taskkill` — go through `cmd.exe` with `raw_arg("/c …")`. `Command::arg` applies its own per-argument escaping and the line reaches `cmd` mangled: the child exits 0 with no output and the port never opens. `CommandExt::creation_flags` is the other trap: it assigns the whole flag word rather than OR-ing into it, so a second call silently drops the first — `spawn_suspended` therefore sets `CREATE_SUSPENDED | CREATE_NO_WINDOW` in one call, and a `CREATE_NO_WINDOW` that gets overwritten shows up as a Windows Terminal tab.
 - Commit messages are Conventional Commits — an English subject (`docs:`, `feat(ui):`, `refactor(config):`, `style(ui):`, `chore:`) — followed by prose saying why the change is wanted, not what it does.
 
@@ -51,7 +49,7 @@ Starting the exe is starting the service, and the window is the progress display
 - That is the design rather than a leak: eframe shows the window after the first paint regardless of `visible(false)`, so the only thing `with_visible(false)` buys is the absence of a white rectangle before the first frame.
 - `hide_after_it_appears` waits for the window to have appeared before hiding it (10 ms poll, 1.5 s bound). Hiding a window eframe has not shown yet is a no-op, and eframe then shows it and leaves it there — which really happened with a service that was ready in ~200 ms.
 - Geometry: outer 640x480, which is `inner_size` 624x441 because the non-client frame measures 16x39 here. `centered: true`; the resize border and the minimize box stay, and only maximize is gone.
-- The maximize box is cleared with `WS_MAXIMIZEBOX` plus `SetWindowPos(SWP_FRAMECHANGED)` in `App::new`, before the first paint: eframe's `with_maximize_button(false)` reaches winit but the frame gets drawn anyway, and clearing the bit afterwards only leaves it greyed. Windows 11 still paints the glyph greyed out rather than removing it — the C# build looked the same, so that is expected, not a bug. Double-clicking the title bar cannot maximize either, since it goes through the same bit.
+- The maximize box is cleared with `WS_MAXIMIZEBOX` plus `SetWindowPos(SWP_FRAMECHANGED)` in `App::new`, before the first paint: eframe's `with_maximize_button(false)` reaches winit but the frame gets drawn anyway, and clearing the bit afterwards only leaves it greyed. Windows 11 still paints the glyph greyed out rather than removing it; that is expected, not a bug to chase. Double-clicking the title bar cannot maximize either, since it goes through the same bit.
 
 ## The window
 
@@ -74,7 +72,7 @@ The tray lives on its own thread (`tray.rs`) and pumps its own messages with `Pe
 - `.with_menu_on_left_click(false)` is load-bearing: the crate's default is true, so the attached menu pops on left click as well, and the symptom is exactly "left click opens the context menu, the window only comes out after clicking elsewhere".
 - Left click toggles the window between screen and tray. The second-instance wake-up only *shows*: double-clicking the exe means "show me the window", not "close it", so the two paths are separate commands.
 - Explorer restarting is routine and takes every tray icon with it; `tray-icon` re-adds ours on the `TaskbarCreated` broadcast itself, so nothing here has to handle it.
-- The menu is a native Win32 popup (window class `#32768`), light-themed under a dark window — an accepted divergence from the C# build's Fluent `ContextMenu`, not a bug to chase. Items are `启动`/`停止`, `更新`/`正在更新`, a separator, then `重启程序` and `退出`; the separator divides the two actions that belong to the service from the two that leave the program.
+- The menu is a native Win32 popup (window class `#32768`), light-themed under a dark window even though the launcher is dark: system-drawn, not something to restyle. Items are `启动`/`停止`, `更新`/`正在更新`, a separator, then `重启程序` and `退出`; the separator divides the two actions that belong to the service from the two that leave the program.
 - Text and enablement come from `sync_menu`, which reads the same `Shared` the window buttons read, so the menu and the buttons cannot disagree. Nothing keeps the popup open after a click — a native menu closes itself.
 - A tray registration that fails is not fatal: the window stays usable and the log says so.
 
@@ -84,8 +82,7 @@ The tray lives on its own thread (`tray.rs`) and pumps its own messages with `Pe
 
 - The handover cannot happen inside this process. A new instance refuses to run while an old one holds the single-instance mutex — it signals the existing window and exits — so a successor started before this process exits is simply swallowed, and both end up gone.
 - So this process starts a hidden copy of itself, `PiWebKeeper.exe --take-over <pid>` (`CREATE_NO_WINDOW`), and exits. That copy waits for the pid (50 ms poll, 30 s bound, and a pid that is already gone counts as waited), then starts a plain `PiWebKeeper.exe`.
-- This replaces the C# build's PowerShell helper, and with it a trap that no longer exists: that helper's command line needed a load-bearing backslash in front of its quotes, or the space in an install path (`Pi Web Keeper`) split the command in two. Nothing here builds a command line out of strings.
-- The helper is deliberately **outside** the service's Job Object. It is our child, but it must outlive us, and `KILL_ON_JOB_CLOSE` would take it with us — the Rust counterpart of the C# version's breakaway problem.
+- The helper is deliberately **outside** the service's Job Object. It is our child, but it must outlive us, and `KILL_ON_JOB_CLOSE` would take it with us.
 - It is started before the service is stopped, so a helper that cannot start cancels the restart with nothing stopped: `重启失败：…` in the log, window up.
 - Both leave actions stop the service before exiting. The successor's start flow would stop it anyway, but leaving it running would open a window with the service up and no launcher, and the contract says one launcher, not two. Cost: the downtime is paid once, on the old instance's side — the successor finds a free port.
 - The successor is an ordinary instance in every respect: it takes the instance mutex, adds its own tray icon, starts the service, and hides its window when that succeeds.

@@ -25,7 +25,7 @@ raw-window-handle = "0.6"
 serde  = { version = "1", features = ["derive"] }
 json5  = "0.4"
 
-# 单实例互斥名里的安装目录哈希，算法与 C# 版一致（SHA-256 前 8 字节）
+# 单实例互斥名里的安装目录哈希（SHA-256 前 8 字节）
 sha2 = "0.10"
 
 [target.'cfg(windows)'.dependencies]

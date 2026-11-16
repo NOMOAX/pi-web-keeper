@@ -1,13 +1,8 @@
 //! 跑外部命令：流式输出、一次性退出码，以及重启用的「继任者交接」。
 //!
-//! 这两件事在 C# 版里分别是 `UpdateRunner` 和 `MainWindow.TryStartRestartHelper`。
-//!
-//! 帮手那一段与 C# 版有一个实质区别：C# 版把「等旧进程退出、再拉起新进程」写进一段
-//! PowerShell 脚本，于是就出现了 AGENTS.md 里那个「引号前面那道反斜杠不能删」的坑 ——
-//! 安装路径里的空格会被命令行解析撕成两半。
-//!
-//! 这里不要 PowerShell：本程序自己带一个隐藏模式（`--take-over <pid>`），
-//! 由它做同样的事。少一层命令行转义，就少一整类 bug。
+//! 交接不用外部脚本（PowerShell 之类）：本程序自己带一个隐藏模式（`--take-over <pid>`），
+//! 由它等到旧进程退出再把新实例拉起来。少一层脚本就少一层命令行转义 ——
+//! 「安装路径里的空格把命令撕成两半」那一类 bug，在直接把进程拉起来时根本不存在。
 
 use std::io::{BufRead, BufReader};
 use std::os::windows::process::CommandExt;

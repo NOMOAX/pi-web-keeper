@@ -1,5 +1,5 @@
 //! 把 `assets/PiWebKeeper.ico` 编进 exe 的图标资源 —— 托盘图标直接从这份资源里取
-//! （见 `src/tray.rs`），与 C# 版的做法一致：exe 里只有一份图标。
+//! （见 `src/tray.rs`）：exe 里只有一份图标。
 //!
 //! 字体不在这里处理：它就在 `assets/fonts/` 里，`src/font.rs` 用相对路径
 //! `include_bytes!` 直接引用，构建期没有额外的搬运步骤。

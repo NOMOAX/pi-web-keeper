@@ -14,8 +14,8 @@ pub const FILE_NAME: &str = "settings.json";
 
 /// 一个被托管的服务。
 ///
-/// 字段名沿用 C# 版的 PascalCase（大小写不敏感地读，见 [`read_json`]），
-/// 所以 main 分支上那份 `settings.json` 不用改一个字节。
+/// 字段名是 PascalCase（大小写不敏感地读，见 [`read_json`]），
+/// 因为用户手上那份 `settings.json` 就是照这个写法填的。
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct KeeperConfig {
@@ -88,8 +88,7 @@ pub fn config_path() -> PathBuf {
 
 /// exe 所在目录。
 ///
-/// 与 C# 版的 `AppContext.BaseDirectory` 同一个意思：单文件发布时 exe 就在那里，
-/// 不会因为工作目录变化而找不到配置。
+/// 单文件发布时 exe 就在那里，不会因为工作目录变了而找不到配置。
 pub fn install_directory() -> PathBuf {
     std::env::current_exe()
         .ok()

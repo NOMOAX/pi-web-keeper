@@ -3,10 +3,8 @@
 //! 数据来源是 `GetExtendedTcpTable(TCP_TABLE_OWNER_PID_LISTENER)` 一次查询，
 //! 监听端口和占用它的进程 ID 一起拿到。
 //!
-//! 与 C# 版的两点不同，都是净简化：
-//!   - C# 版用 `GetActiveTcpListeners()` 判断监听，另外再 `netstat -ano` 抓一遍文本、
-//!     按列拆字符串找 pid。这里是同一次系统调用的同一份数据。
-//!   - 不再需要解析任何文本，也就不存在“列数不够就跳过”这类兜底分支。
+//! 一次查询就够，不必再跑 `netstat -ano` 去拆文本找 pid，
+//! 也就不存在「列数不够就跳过」这类兜底分支。
 
 use std::collections::BTreeSet;
 use std::time::{Duration, Instant};

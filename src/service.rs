@@ -3,9 +3,9 @@
 //! 生命周期契约：启动器存活期间服务就存活，启动器关闭时服务必须被终止。
 //! 「关闭启动器就是停止服务」是整个程序的核心语义。
 //!
-//! 与 C# 版的结构差别：这里没有 async。C# 版用 `Task` 是因为 UI 线程不能被阻塞；
-//! 这里所有阻塞操作都跑在后台线程上，UI 只读状态、只发命令，所以同步代码就够了 ——
-//! 少一套 `ConfigureAwait` 与「输掉的那条 Task 没人 await」的心智负担。
+//! 这里没有 async。UI 线程不能被阻塞，而本程序的做法不是把每一步都写成 `Future`，
+//! 是把所有阻塞操作搬到一个专门的后台线程上，UI 只读状态、只发命令 —— 同步代码就够了，
+//! 少一套「等待与取消」的心智负担。
 
 use std::os::windows::process::CommandExt;
 use std::process::{Child, Command, Stdio};
@@ -148,8 +148,6 @@ impl ServiceKeeper {
             /*
              * `raw_arg` 而不是 `arg`：`arg` 会按 Rust 自己的规则给参数加引号、转义里面的引号，
              * 而 `cmd.exe /c` 收到的应该是**一整段命令文本**。
-             * C# 版的 `ProcessStartInfo("cmd.exe", $"/c {config.StartCommand}")`
-             * 就是那样的：整串原样传过去，没有第二层引号。
              * 换成 `arg` 的话，`node -e "..."` 这种命令会被搞坏。
              *
              * 创建标志不在这里设：`creation_flags` 是赋值而不是按位或，
