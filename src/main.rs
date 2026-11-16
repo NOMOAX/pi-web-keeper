@@ -21,6 +21,7 @@ mod service;
 mod single_instance;
 mod tray;
 mod ui;
+mod window;
 
 use std::sync::{mpsc, Arc, Mutex};
 
@@ -99,14 +100,13 @@ fn main() {
 
     /*
      * 第二个实例来敲门：把窗口叫出来。
-     * 回调在后台线程上，所以这里只置一个标志，由界面线程自己消费。
+     * 回调在后台线程上，而且可能发生在窗口已经藏进托盘、界面不再重绘的时候，
+     * 所以这条命令由控制器线程直接调 Win32，不经过界面帧（见 `window.rs`）。
      */
     instance.listen_for_activation({
         let handle = handle.clone();
 
-        move || {
-            handle.lock().show_window = true;
-        }
+        move || handle.send(Command::ShowWindow)
     });
 
     if let Err(error) = ui::run(handle, start_on_launch) {

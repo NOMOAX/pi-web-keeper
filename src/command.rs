@@ -51,8 +51,8 @@ pub fn run_streaming(
     on_line: &(dyn Fn(String) + Sync),
 ) -> std::io::Result<i32> {
     let mut child = Command::new("cmd.exe")
-        .arg("/c")
-        .arg(command_line)
+        // 同上：整段命令原样交给 cmd，不要让 std 再套一层引号
+        .raw_arg(format!("/c {command_line}"))
         .current_dir(working_directory())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

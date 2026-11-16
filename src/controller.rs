@@ -74,12 +74,6 @@ pub struct Shared {
     /// 配置读失败时的原因。有它就没有服务可管，只剩托盘里的「退出」。
     pub config_error: Option<String>,
 
-    /// 一次性标志：界面的某一帧读走后清掉。
-    pub show_window: bool,
-
-    /// 一次性标志：把窗口收进托盘。
-    pub hide_window: bool,
-
     /// 一次性标志：界面读完就关窗。
     pub quit: bool,
 }
@@ -146,6 +140,9 @@ fn run(handle: Handle, config: Option<KeeperConfig>, inbox: Receiver<Command>) {
 
     if keeper.is_none() {
         handle.lock().state = "没有可管理的服务".to_owned();
+    } else {
+        // 按钮的初始文字靠这一句：它说的是「现在没有服务在跑」，而不是空白
+        handle.lock().state = "未启动".to_owned();
     }
 
     loop {
@@ -169,8 +166,9 @@ fn run(handle: Handle, config: Option<KeeperConfig>, inbox: Receiver<Command>) {
                 run_update(&handle, keeper.as_ref());
             }
             Ok(Command::ShowWindow) => {
-                // 托盘左键与「第二个实例来敲门」走同一条路：置一个一次性标志
-                handle.lock().show_window = true;
+                // 托盘左键与「第二个实例来敲门」走同一条路。
+                // 直接调 Win32：窗口藏起来之后界面不再重绘，置标志没人读（见 `window.rs`）。
+                crate::window::show();
             }
             Err(RecvTimeoutError::Disconnected) => return,
             Err(RecvTimeoutError::Timeout) => {}
@@ -235,21 +233,28 @@ fn start_service(handle: &Handle, keeper: Option<&ServiceKeeper>) {
     // 服务那边出 panic 也不能把控制器线程带走：界面还得能继续用
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| keeper.start()));
 
-    let mut shared = handle.lock();
+    {
+        let mut shared = handle.lock();
 
-    shared.busy = false;
-    shared.listening = keeper.is_port_listening();
+        shared.busy = false;
+        shared.listening = keeper.is_port_listening();
 
-    match outcome {
-        Ok(Ok(())) => shared.hide_window = true,
-        Ok(Err(reason)) => {
-            shared.push_line(format!("启动失败：{reason}"));
-            shared.show_window = true;
+        match &outcome {
+            Ok(Ok(())) => {}
+            Ok(Err(reason)) => shared.push_line(format!("启动失败：{reason}")),
+            Err(_) => shared.push_line("启动过程中出现未预期错误。".to_owned()),
         }
-        Err(_) => {
-            shared.push_line("启动过程中出现未预期错误。".to_owned());
-            shared.show_window = true;
-        }
+    }
+
+    /*
+     * 成功就收起启动器（用户接下来要看的是应用窗口，不是日志），
+     * 失败就把它留在屏幕上（报错得看得见）—— 启动时走的就是同一条路，
+     * 只是那时窗口还没显示过，收起来等于什么都没发生。
+     */
+    if matches!(outcome, Ok(Ok(()))) {
+        crate::window::hide();
+    } else {
+        crate::window::show();
     }
 }
 
@@ -332,6 +337,10 @@ fn leave(handle: &Handle, keeper: Option<&ServiceKeeper>, kind: Kind) {
     shared.push_line("服务已停止，关闭窗口。".to_owned());
     shared.busy = false;
     shared.quit = true;
+    drop(shared);
+
+    // 直接用 Win32 关：这条路上窗口可能正藏在托盘里，界面帧不会再来
+    crate::window::close();
 }
 
 /// 跑一次更新。

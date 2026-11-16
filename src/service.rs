@@ -23,7 +23,6 @@ use crate::command;
 use crate::config::KeeperConfig;
 use crate::port;
 use crate::process_ext::{self, JobObject};
-
 /// 停止时等端口释放的上限。
 const PORT_RELEASE_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -154,8 +153,14 @@ impl ServiceKeeper {
     fn spawn_process(&self) -> Result<(), String> {
         let mut command = Command::new("cmd.exe");
         command
-            .arg("/c")
-            .arg(&self.config.start_command)
+            /*
+             * `raw_arg` 而不是 `arg`：`arg` 会按 Rust 自己的规则给参数加引号、转义里面的引号，
+             * 而 `cmd.exe /c` 收到的应该是**一整段命令文本**。
+             * C# 版的 `ProcessStartInfo("cmd.exe", $"/c {config.StartCommand}")`
+             * 就是那样的：整串原样传过去，没有第二层引号。
+             * 换成 `arg` 的话，`node -e "..."` 这种命令会被搞坏。
+             */
+            .raw_arg(format!("/c {}", self.config.start_command))
             .current_dir(command::working_directory())
             .stdin(Stdio::null())
             .stdout(Stdio::piped())

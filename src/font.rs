@@ -47,6 +47,7 @@ pub fn install(context: &Context) -> String {
             .insert(key.clone(), FontData::from_static(bytes));
 
         prefer(&mut fonts, &key);
+        context.set_fonts(fonts);
 
         return format!("内嵌字体（{name}，{} KB）", bytes.len() / 1024);
     }
@@ -59,6 +60,7 @@ pub fn install(context: &Context) -> String {
             .insert(key.clone(), FontData::from_owned(bytes));
 
         prefer(&mut fonts, &key);
+        context.set_fonts(fonts);
 
         return format!("系统字体（{}）", path.display());
     }

@@ -17,6 +17,7 @@ pub const FILE_NAME: &str = "settings.json";
 /// 字段名沿用 C# 版的 PascalCase（大小写不敏感地读，见 [`read_json`]），
 /// 所以 main 分支上那份 `settings.json` 不用改一个字节。
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "PascalCase")]
 pub struct KeeperConfig {
     /// 服务监听主机，例如 `127.0.0.1`。
     #[serde(default = "default_host", alias = "host")]

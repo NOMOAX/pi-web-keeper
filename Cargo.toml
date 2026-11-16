@@ -18,6 +18,9 @@ egui   = "0.29"
 # 托盘图标与右键菜单
 tray-icon = "0.19"
 
+# 从 eframe 的 Frame 里取出原生窗口句柄（版本必须与 eframe 依赖的一致）
+raw-window-handle = "0.6"
+
 # settings.json：json5 与原先 System.Text.Json 的 ReadCommentHandling/AllowTrailingCommas 对齐
 serde  = { version = "1", features = ["derive"] }
 json5  = "0.4"

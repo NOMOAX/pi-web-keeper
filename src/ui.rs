@@ -22,8 +22,13 @@ const BUTTON_SPACING: f32 = 8.0;
 pub fn run(handle: Handle, start_on_launch: bool) -> eframe::Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([640.0, 480.0])
-            .with_min_inner_size([640.0, 480.0])
+            /*
+             * XAML 里那个 640x480 是**含边框的外框**尺寸（`Window.Width/Height`），
+             * 而这里的 `inner_size` 是客户区。实测本机非客户区占 16x39，减掉才能得到
+             * 一样大的窗口。逻辑点与物理像素都按 DPI 缩放，所以这个差在两边的比例下都成立。
+             */
+            .with_inner_size([624.0, 441.0])
+            .with_min_inner_size([624.0, 441.0])
             // 只去掉最大化按钮，窗口仍可缩放 —— 与 XAML 版清 WS_MAXIMIZEBOX 是同一件事
             .with_maximize_button(false)
             .with_title("Pi Web Keeper")
@@ -43,6 +48,10 @@ pub fn run(handle: Handle, start_on_launch: bool) -> eframe::Result<()> {
             context.set_visuals(egui::Visuals::dark());
 
             let font_note = font::install(context);
+
+            // 窗口已经建好但还没画过：改样式要趁现在，等到第一帧再改，
+            // 系统已经把最大化按钮画上去了，清掉样式位也只会把它画成灰的
+            prepare_window(&creation, context.clone());
 
             Ok(Box::new(KeeperApp::new(handle, start_on_launch, font_note)))
         }),
@@ -102,13 +111,11 @@ impl KeeperApp {
 
 impl eframe::App for KeeperApp {
     fn update(&mut self, context: &egui::Context, _frame: &mut eframe::Frame) {
-        let (quit, show, hide, revision, state, listening, busy, updating, exiting, has_config, lines) = {
-            let mut shared = self.handle.lock();
+        let (quit, revision, state, listening, busy, updating, exiting, has_config, lines) = {
+            let shared = self.handle.lock();
 
             (
                 shared.quit,
-                std::mem::take(&mut shared.show_window),
-                std::mem::take(&mut shared.hide_window),
                 shared.log_revision,
                 shared.state.clone(),
                 shared.listening,
@@ -131,15 +138,6 @@ impl eframe::App for KeeperApp {
             context.send_viewport_cmd(egui::ViewportCommand::Close);
         }
 
-        if show {
-            context.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-            context.send_viewport_cmd(egui::ViewportCommand::Focus);
-        }
-
-        if hide {
-            context.send_viewport_cmd(egui::ViewportCommand::Visible(false));
-        }
-
         /*
          * 启动时直接走一遍「启动」，中间不显示窗口。
          * 这一条命令与按钮发的是同一个，只是不等结果。
@@ -155,12 +153,12 @@ impl eframe::App for KeeperApp {
          */
         if context.input(|input| input.viewport().close_requested()) && !exiting {
             context.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            context.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+            crate::window::hide();
         }
 
         // 最小化也等于收进托盘：拦的是状态变化，所以按钮、系统菜单、自动收起都覆盖到了
         if context.input(|input| input.viewport().minimized).unwrap_or(false) {
-            context.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+            crate::window::hide();
         }
 
         let service_label = if busy {
@@ -238,16 +236,28 @@ impl eframe::App for KeeperApp {
 
             ui.label(&state);
 
+            // 留给消息框的高度：面板里剩下的全部（在外面量，见下面的注释）
+            let log_height = ui.available_height();
+
             let clear = egui::ScrollArea::vertical()
                 .id_salt("message-box")
                 .stick_to_bottom(true)
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
+                    /*
+                     * 消息框要填满面板剩下的那一块，而不是固定多少行然后下面留一片空白。
+                     * 行数按进 ScrollArea 之前的高度算 —— 进去之后 available_height
+                     * 就变成内容高度了，量到的是它自己。
+                     * 内容超过时由 ScrollArea 接管，新的一行进来会粘在底部。
+                     */
+                    let row_height = ui.text_style_height(&egui::TextStyle::Monospace).max(1.0);
+                    let rows = ((log_height / row_height).floor() as usize).max(1);
+
                     let response = ui.add(
                         egui::TextEdit::multiline(&mut self.log_view)
                             .font(egui::TextStyle::Monospace)
                             .desired_width(f32::INFINITY)
-                            .desired_rows(20),
+                            .desired_rows(rows),
                     );
 
                     let mut cleared = false;
@@ -287,3 +297,57 @@ impl eframe::App for KeeperApp {
 ///
 /// 不留下空白：空白分不清「程序还没写过日志」与「日志刚被清掉」，而留一句话就能分清。
 const CLEARED_PLACEHOLDER: &str = "----- Message cleared. -----";
+
+/// 取掉窗口的最大化按钮。
+///
+/// eframe 的 `with_maximize_button(false)` 一路传到了 winit，但实测这一帧里它还是画出来了，
+/// 所以照 XAML 版的做法直接改窗口样式位：清掉 `WS_MAXIMIZEBOX`，再让系统重算非客户区。
+/// 缩放与最小化照旧；双击标题栏最大化也会一并失效，它走的也是这个位。
+/// 窗口建好之后的收尾：取掉最大化按钮，并把句柄与上下文记下来。
+///
+/// 记句柄是为了让托盘线程和单实例监听线程能直接显示／隐藏窗口 ——
+/// 窗口藏起来之后界面不再重绘，任何靠界面帧去做的动作都会停在那里（见 `window.rs`）。
+fn prepare_window(source: &impl raw_window_handle::HasWindowHandle, context: egui::Context) {
+    use raw_window_handle::RawWindowHandle;
+
+    let Ok(handle) = source.window_handle() else {
+        return;
+    };
+
+    let RawWindowHandle::Win32(win32) = handle.as_raw() else {
+        return;
+    };
+
+    let window = windows::Win32::Foundation::HWND(win32.hwnd.get() as *mut core::ffi::c_void);
+
+    crate::window::remember(window, context);
+
+    // SAFETY: 句柄来自 winit，在窗口存活期间有效
+    unsafe {
+        let style = windows::Win32::UI::WindowsAndMessaging::GetWindowLongPtrW(
+            window,
+            windows::Win32::UI::WindowsAndMessaging::GWL_STYLE,
+        );
+
+        windows::Win32::UI::WindowsAndMessaging::SetWindowLongPtrW(
+            window,
+            windows::Win32::UI::WindowsAndMessaging::GWL_STYLE,
+            style & !(windows::Win32::UI::WindowsAndMessaging::WS_MAXIMIZEBOX.0 as isize),
+        );
+
+        // 改完样式要告诉系统重算非客户区，否则标题栏上的按钮不会被重画
+        let _ = windows::Win32::UI::WindowsAndMessaging::SetWindowPos(
+            window,
+            None,
+            0,
+            0,
+            0,
+            0,
+            windows::Win32::UI::WindowsAndMessaging::SWP_NOMOVE
+                | windows::Win32::UI::WindowsAndMessaging::SWP_NOSIZE
+                | windows::Win32::UI::WindowsAndMessaging::SWP_NOZORDER
+                | windows::Win32::UI::WindowsAndMessaging::SWP_NOACTIVATE
+                | windows::Win32::UI::WindowsAndMessaging::SWP_FRAMECHANGED,
+        );
+    }
+}
