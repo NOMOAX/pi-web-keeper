@@ -34,9 +34,6 @@ const PROCESS_EXIT_TIMEOUT: Duration = Duration::from_secs(5);
 pub enum Event {
     /// 一行日志。
     Message(String),
-
-    /// 状态变化（界面上的按钮文字与可用性跟着它走）。
-    State(String),
 }
 
 /// 托管一个服务。
@@ -86,18 +83,14 @@ impl ServiceKeeper {
     /// 端口上已经有人在听、或者上一次的进程还没退干净，都不会堆成两份服务。
     /// 重新启动就是「停止」再「启动」各点一次，走的就是这里和 [`Self::stop`]。
     pub fn start(&self) -> Result<(), String> {
-        self.emit_state("正在停止已有服务…");
+        self.emit_message("正在停止已有服务…");
         self.stop(None);
 
-        self.emit_state("正在启动服务…");
+        self.emit_message("正在启动服务…");
         self.spawn_process()?;
         self.wait_until_ready()?;
 
         if self.config.ready_delay_seconds > 0.0 {
-            self.emit_state(format!(
-                "等待服务加载（{:.1} 秒）…",
-                self.config.ready_delay_seconds
-            ));
             self.emit_message(format!(
                 "端口已就绪，额外等待 {:.1} 秒（部分服务就绪后还要加载插件）。",
                 self.config.ready_delay_seconds
@@ -106,7 +99,6 @@ impl ServiceKeeper {
         }
 
         self.open_app_window();
-        self.emit_state(format!("运行中（{}:{}）", self.config.host, self.config.port));
 
         Ok(())
     }
@@ -120,18 +112,14 @@ impl ServiceKeeper {
         self.kill_process_tree();
 
         if !port::is_listening(self.config.port) {
-            self.emit_state("已停止");
-
             return;
         }
 
-        self.emit_state("等待端口释放…");
+        self.emit_message("等待端口释放…");
 
         let budget = timeout.unwrap_or(PORT_RELEASE_TIMEOUT);
 
         if port::wait_for_state(self.config.port, false, budget) {
-            self.emit_state("已停止");
-
             return;
         }
 
@@ -151,8 +139,6 @@ impl ServiceKeeper {
                 self.config.port
             ));
         }
-
-        self.emit_state("已停止");
     }
 
     /// 起进程、入作业、放行，并把输出接到日志上。
@@ -258,7 +244,6 @@ impl ServiceKeeper {
                 drop(inner);
 
                 self.emit_message(format!("服务进程已退出（退出码 {code}）。"));
-                self.emit_state("已停止");
             }
             Ok(None) => {}
             Err(error) => {
@@ -268,7 +253,6 @@ impl ServiceKeeper {
                 drop(inner);
 
                 self.emit_message(format!("无法查询服务进程状态：{error}"));
-                self.emit_state("已停止");
             }
         }
     }
@@ -279,7 +263,7 @@ impl ServiceKeeper {
     /// 第二种必须算结束而不是继续等 —— 进程都没了，端口不会自己长出来，
     /// 而用户要对着「超时」那句等满整个 WaitSeconds，日志里明明早就写着服务退出了。
     fn wait_until_ready(&self) -> Result<(), String> {
-        self.emit_state(format!(
+        self.emit_message(format!(
             "等待服务就绪（最多 {:.1} 秒）…",
             self.config.wait_seconds
         ));
@@ -425,9 +409,6 @@ impl ServiceKeeper {
         )));
     }
 
-    fn emit_state(&self, state: impl Into<String>) {
-        let _ = self.events.send(Event::State(state.into()));
-    }
 }
 
 /// `[HH:mm:ss]`，取系统本地时间。

@@ -103,13 +103,12 @@ impl KeeperApp {
 
 impl eframe::App for KeeperApp {
     fn update(&mut self, context: &egui::Context, _frame: &mut eframe::Frame) {
-        let (quit, revision, state, listening, busy, updating, exiting, has_config, lines) = {
+        let (quit, revision, listening, busy, updating, exiting, has_config, lines) = {
             let shared = self.handle.lock();
 
             (
                 shared.quit,
                 shared.log_revision,
-                shared.state.clone(),
                 shared.listening,
                 shared.busy,
                 shared.updating,
@@ -224,8 +223,6 @@ impl eframe::App for KeeperApp {
                     pressed = Some(Command::Exit);
                 }
             });
-
-            ui.label(&state);
 
             // 留给消息框的高度：面板里剩下的全部（在外面量，见下面的注释）
             let log_height = ui.available_height();

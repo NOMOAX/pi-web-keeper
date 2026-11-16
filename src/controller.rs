@@ -65,9 +65,6 @@ pub struct Shared {
     /// 日志版本号。每追加一行加一，界面靠它判断要不要重建影子缓冲。
     pub log_revision: u64,
 
-    /// 状态一句话，显示在按钮下方。
-    pub state: String,
-
     /// 正在启停服务：按钮变灰，文字换成「正在启动 / 正在停止」。
     pub busy: bool,
 
@@ -149,13 +146,6 @@ fn run(handle: Handle, config: Option<KeeperConfig>, inbox: Receiver<Command>) {
     let (event_tx, event_rx) = std::sync::mpsc::channel::<Event>();
 
     let keeper = config.map(|config| ServiceKeeper::new(config, event_tx));
-
-    if keeper.is_none() {
-        handle.lock().state = "没有可管理的服务".to_owned();
-    } else {
-        // 按钮的初始文字靠这一句：它说的是「现在没有服务在跑」，而不是空白
-        handle.lock().state = "未启动".to_owned();
-    }
 
     loop {
         // 先等命令；超时正好用来做周期性的状态刷新
@@ -241,9 +231,6 @@ fn drain_events(handle: &Handle, events: &Receiver<Event>) {
         match events.try_recv() {
             Ok(Event::Message(line)) => {
                 guard.get_or_insert_with(|| handle.lock()).push_line(line);
-            }
-            Ok(Event::State(state)) => {
-                guard.get_or_insert_with(|| handle.lock()).state = state;
             }
             Err(_) => break,
         }
