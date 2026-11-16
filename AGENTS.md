@@ -2,6 +2,8 @@
 
 A Rust launcher for Windows — a GUI-subsystem exe (`windows_subsystem = "windows"`, so it owns no console) — that manages exactly one local WebUI service: it starts the service, waits for its port, opens the installed PWA in its own window, and sits in the notification area while it runs. A second button updates Pi itself.
 
+The implementation this replaced — C# / WPF, `main` up to `03675a3^` — is in git history and not in the tree. Where the notes below name it, they are saying what a decision was made against, not where to find code.
+
 `cargo build --release` produces `target/release/PiWebKeeper.exe`, one self-contained file: `.cargo/config.toml` links the CRT statically and `[profile.release]` uses `opt-level = "z"`, `lto`, `panic = "abort"` and `strip`. Measured 11.6 MB, of which 8.1 MB is the embedded font.
 
 Users get the exe from the GitHub release for that version — a zip holding `PiWebKeeper.exe`, a sample `settings.json`, `THIRD-PARTY-NOTICES.md` and `assets/fonts/LICENSE.txt`. The last two are not documentation: the font is SIL OFL 1.1, which obliges whoever redistributes it to ship the licence with it, and embedding it in the exe is redistribution. A release is tagged `v`-prefixed, made by the release rather than by hand (`gh release create v0.1.0 <zip> --title v0.1.0 --notes-file <notes>`).

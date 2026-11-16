@@ -1,17 +1,13 @@
 > [!WARNING]
 > **此项目只支持 Windows 系统。**
 
-> [!NOTE]
-> 这是 `rust` 分支：启动器已经用 Rust 重写完成。
-> `main` 分支上的 C# / WPF 实现保持原样，是上一版；`AGENTS.md` 已按 Rust 实现重写。
-
 # Pi Web Keeper
 
 Pi Web Keeper 是一个负责托管 **一个**本地 Pi Web 服务的 Windows 桌面启动器。
 
 | 项目     | 内容                                         |
 |----------|----------------------------------------------|
-| 语言     | Rust（`rust` 分支；`main` 分支是 C#）        |
+| 语言     | Rust                                         |
 | 界面     | egui（自绘）                                 |
 | 发布形式 | 单文件、静态链接 CRT，目标机器无需安装任何运行时 |
 
@@ -22,7 +18,7 @@ Pi Web Keeper 是一个负责托管 **一个**本地 Pi Web 服务的 Windows �
 - 另外提供一个更新按钮，用来把 Pi 本身更新到最新版本，依次执行 `pi update --all` 与 `pi-web update`；
 - 还有 `重启程序` 与 `退出`：前者把班交给下一份启动器后自己退出（服务跟着重启），后者结束程序并把服务也停掉。
 
-可执行文件从[最新发布](https://github.com/NOMOAX/pi-web-keeper/releases/latest)下载：压缩包里是 `PiWebKeeper.exe` 和一个示例 `settings.json`，两个文件放进同一个目录就能用。
+可执行文件从[最新发布](https://github.com/NOMOAX/pi-web-keeper/releases/latest)下载：压缩包里是 `PiWebKeeper.exe`、一个示例 `settings.json`，以及 `THIRD-PARTY-NOTICES.md` 与 `assets/fonts/LICENSE.txt`（内嵌字体带 SIL OFL 1.1 许可，随程序分发时要一起给出）。`PiWebKeeper.exe` 与 `settings.json` 放进同一个目录就能用。
 
 ## 快速开始
 
@@ -74,16 +70,17 @@ Pi Web Keeper 是一个负责托管 **一个**本地 Pi Web 服务的 Windows �
 
 6. 准备安装目录
 
-    - 从[最新发布](https://github.com/NOMOAX/pi-web-keeper/releases/latest)下载压缩包（`PiWebKeeper-<版本号>-win-x64.zip`），里面就是 `PiWebKeeper.exe` 与 `settings.json` 两个文件。
-    - 新建一个目录（放在哪里都可以），把这两个文件放进去。
+    - 从[最新发布](https://github.com/NOMOAX/pi-web-keeper/releases/latest)下载压缩包（`PiWebKeeper-<版本号>-win-x64.zip`），里面是 `PiWebKeeper.exe`、`settings.json`，以及许可文件 —— 许可文件请与 exe 放在一起，别丢掉。
+    - 新建一个目录（放在哪里都可以），把它们放进去。
     - 把 `settings.json` 里的 `AppUserModelId` 换成上一步查到的值。
     - 一个目录对应一个被托管的服务。如果要托管第二个服务，请另外新建一个目录。
 
 7. 启动
 
     - 运行 `PiWebKeeper.exe` 即可，不需要再点界面上的 `启动`：程序一起来就自己启动服务。
-    - 服务启动成功时，启动器不会显示窗口，只留一个托盘图标（PWA 窗口会照常打开）。窗口只在启动失败时才会自己出现，日志里写着失败原因。
-    - 想主动看一眼日志的话，点一下托盘图标就能把窗口叫出来；窗口上的按钮依旧是 `停止`，再点一下就是停服务。
+    - 启动期间窗口就在屏幕上，那几行日志就是进度：`正在启动服务…`、`等待服务就绪（最多 5 秒）…`、`端口 30141 已就绪。`。
+    - 服务起来、要打开应用窗口时，窗口自己收进托盘，屏幕上只剩 PWA 窗口。启动失败时它留在屏幕上，日志里写着失败原因。
+    - 想再看一眼日志的话，点一下托盘图标就能把窗口叫出来；窗口上的按钮依旧是 `停止`，再点一下就是停服务。
 
 ## 系统托盘
 
@@ -98,11 +95,11 @@ Pi Web Keeper 是一个负责托管 **一个**本地 Pi Web 服务的 Windows �
 
 菜单里的每一项都和窗口上的按钮对应、做的是同一件事，不能执行时会显示为灰色：服务正在运行时不能更新（那会去动正被占用的文件），更新期间也不能退出或重启程序（更新不能中途取消，半途离开会留下一个替换了一半的 npm 包）。
 
-点完之后菜单收不收，看的是“这一下后面还跟不跟着别的动作”：`更新` 不收（更新到哪一步就写在这两行上）、`停止` 也不收（重启就是停一下再启一下）；`启动`、`重启程序` 和 `退出` 则会收起来。
+菜单是系统原生菜单，点完就收，不存在“这一项点完停在那里”的情况；要接着做下一步（比如停了服务再启动）就再右键一次。
 
 窗口收起来了，程序还在跑，服务也就还在跑；要彻底结束，用菜单里的 `退出`；只想把程序换成新的一份（比如换了 exe 之后），用 `重启程序` —— 它会等自己退干净了再拉起下一份，服务也跟着重启一遍。
 
-程序启动时就自己走了一遍“启动”（见[快速开始](#快速开始)第 7 步），所以平时根本看不到这个窗口：它只在服务启动失败、或者你点托盘图标的时候才出现。
+程序启动时就自己走了一遍“启动”（见[快速开始](#快速开始)第 7 步），所以正常情况下这个窗口只在启动那几秒露一下面：服务一起来它就收进托盘，想看随时点托盘图标。
 
 ## settings.json
 
@@ -161,15 +158,19 @@ $shell.NameSpace('shell:AppsFolder').Items() |
 - AppUserModelId 由 Edge 在安装 PWA 时生成，格式为 `<站点标识>-<哈希>!App`。从 `localhost` 或 `127.0.0.1` 安装的应用显示为 `127.0.0.1-xxxx!App`，从公网站点安装的应用显示为 `https://example.com-xxxx!App`，此外还有 `Microsoft.WindowsCalculator_8wekyb3d8bbwe!App` 这种来自应用商店的写法。
 - **卸载并重新安装 PWA 之后，其中的哈希会发生变化**，原来的 AppUserModelId 随即失效，需要重新查询并填写。
 - 把 `AppUserModelId` 留空（`""`）时，启动器只启动和停止服务，既不打开应用窗口，也不关闭应用窗口，适合纯命令行的使用场景。
-- 启动器与 Windows 的交互只有三处：打开应用时执行 `explorer.exe shell:AppsFolder\<AppUserModelId>`，关闭应用时按 AppUserModelId 查找窗口，以及在通知区域里放一个托盘图标（`Shell_NotifyIcon`，见[系统托盘](#系统托盘)）。之所以按 AppUserModelId 查找而不按进程查找，是因为 Edge 会把多个 PWA 的窗口放在同一个 `msedge.exe` 进程里。
+- 启动器与 Windows 的交互只有三处：打开应用时执行 `explorer.exe shell:AppsFolder\<AppUserModelId>`，关闭应用时按 AppUserModelId 查找窗口，以及在通知区域里放一个托盘图标（`tray-icon` crate，见[系统托盘](#系统托盘)）。之所以按 AppUserModelId 查找而不按进程查找，是因为 Edge 会把多个 PWA 的窗口放在同一个 `msedge.exe` 进程里。
 
 ## 从源码构建
 
+需要 Rust 工具链（MSVC toolchain，目标 `x86_64-pc-windows-msvc`）。
+
 ```powershell
-dotnet publish PiWebKeeper/PiWebKeeper.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o publish/win-x64
+cargo build --release
 ```
 
-`IncludeNativeLibrariesForSelfExtract` 是其中最关键的一个参数：缺少它，WPF 需要的原生 DLL 会散落在可执行文件旁边，整个目录约为 131 MB；加上它之后，得到的才是单个约 62 MB 的可执行文件。
+产物是 `target\release\PiWebKeeper.exe`，一个文件、约 11 MB，目标机器不需要安装任何运行时。`.cargo/config.toml` 静态链接 CRT，`Cargo.toml` 的 `[profile.release]` 用 `opt-level = "z"` + `lto` + `panic = "abort"` + `strip` 换体积。
+
+其中约 8 MB 是内嵌的思源黑体（`assets/fonts/NotoSansSC-Regular.otf`）—— 界面字体编在 exe 里，所以同一份 exe 在任何机器上长得一样，换字体就是重新编译一次。
 
 ## 感谢
 
