@@ -79,13 +79,6 @@ pub struct Shared {
 
     /// 一次性标志：界面读完就关窗。
     pub quit: bool,
-
-    /// 窗口**该不该**显示。
-    ///
-    /// 不能拿「实际是否可见」当依据：eframe 在第一帧画完之后会无条件把窗口显示出来
-    /// （`epi_integration.rs` 里那句 `set_visible(true)`，不管创建时的 `visible(false)`），
-    /// 所以真的「该不该」必须由这里说了算，界面每帧把实际状态拉回来。
-    pub visible: bool,
 }
 
 impl Shared {
@@ -181,14 +174,14 @@ fn run(handle: Handle, config: Option<KeeperConfig>, inbox: Receiver<Command>) {
                  * 这个动作**不是**开关：「再双击一次 exe」的语义是「把窗口给我看」，
                  * 而不是「窗口开着就关掉」—— XAML 版那一条走的也是 `ShowFromTray`。
                  */
-                set_window_visible(&handle, true);
+                set_window_visible(true);
             }
             Ok(Command::ToggleWindow) => {
                 /*
                  * 托盘左键是开关，与 XAML 版一致
                  * （那边是 `IsVisible && WindowState != Minimized` 时就隐藏）。
                  */
-                set_window_visible(&handle, !crate::window::is_visible());
+                set_window_visible(!crate::window::is_visible());
             }
             Err(RecvTimeoutError::Disconnected) => return,
             Err(RecvTimeoutError::Timeout) => {}
@@ -206,17 +199,29 @@ fn run(handle: Handle, config: Option<KeeperConfig>, inbox: Receiver<Command>) {
     }
 }
 
-/// 把窗口设到指定可见状态，并记下目标。
-///
-/// 两个动作要一起做：只改窗口不改标志，下一帧会被拉回去；只改标志不改窗口，变化不会发生。
-fn set_window_visible(handle: &Handle, visible: bool) {
-    handle.lock().visible = visible;
-
+/// 把窗口设到指定可见状态。
+fn set_window_visible(visible: bool) {
     if visible {
         crate::window::show();
     } else {
         crate::window::hide();
     }
+}
+
+/// 等到窗口真的露过面，再把它藏起来。
+///
+/// 为什么不能直接藏：eframe 在第一帧画完之后才把窗口显示出来（`epi_integration.rs`
+/// 里那句 `set_visible(true)`，不管创建时传的 `visible(false)`）。
+/// 服务如果比第一帧就绪得还快（实测过这种配置），提前藏会被它随后盖掉，
+/// 窗口就会一直留在屏幕上。_这里等它露过一次再藏，就不用每帧去拉状态了。
+fn hide_after_it_appears() {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(1500);
+
+    while !crate::window::is_visible() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+
+    crate::window::hide();
 }
 
 /// 把服务那边的事件搬进共享状态。
@@ -280,14 +285,14 @@ fn start_service(handle: &Handle, keeper: Option<&ServiceKeeper>) {
     }
 
     /*
-     * 成功就收起启动器（用户接下来要看的是应用窗口，不是日志），
-     * 失败就把它留在屏幕上（报错得看得见）—— 启动时走的就是同一条路，
-     * 只是那时窗口还没显示过，收起来等于什么都没发生。
+     * 成功就收起启动器 —— 这一步对应「要打开应用窗口了」：
+     * 用户接下来看的是 Pi Web，不是这块日志。
+     * 失败就把它留在屏幕上（报错得看得见）。
      */
     if matches!(outcome, Ok(Ok(()))) {
-        set_window_visible(handle, false);
+        hide_after_it_appears();
     } else {
-        set_window_visible(handle, true);
+        set_window_visible(true);
     }
 }
 
