@@ -143,18 +143,14 @@ impl eframe::App for KeeperApp {
          * 每帧把实际可见状态拉回「该不该」。
          *
          * eframe 在第一帧画完之后会无条件把窗口显示出来（`window::remember` 那边有说明），
-         * 而启动成功的那一下要把窗口收起来——如果不在这里拉回来，用户就会看到
-         * 「先闪出来一下，然后隐藏」。
+         * 而启动成功的那一下要把窗口收起来。这里不能阻止那次显示，只能尽快把它减回去：
+         * 实测还会剩两帧左右，窗口在屏幕中间一闪 —— 这是接下来这个栈的已知代价，
+         * 不用「先把窗口放屏幕外」这种偏门手段绕（那样虽然看不见，但窗口的位置就不再是它该在的地方）。
          *
          * `request_repaint` 不能省：藏完之后窗口不再重绘，不主动要一帧的话，
          * 再下帧要等 100 毫秒，那 100 毫秒就是一个真的看得见的窗口。
          */
-        if visible {
-            // 在屏幕外就把它展回来（否则它一直隐在 -32000 那个位置）
-            if crate::window::is_parked() {
-                crate::window::show();
-            }
-        } else if crate::window::is_visible() {
+        if !visible && crate::window::is_visible() {
             crate::window::hide();
         }
 
@@ -347,12 +343,6 @@ fn prepare_window(source: &impl raw_window_handle::HasWindowHandle, context: egu
     let window = windows::Win32::Foundation::HWND(win32.hwnd.get() as *mut core::ffi::c_void);
 
     crate::window::remember(window, context);
-
-    /*
-     * 先把窗口挪到屏幕外：eframe 会在第一帧画完之后无条件把它显示出来，
-     * 而启动成功时它自始至终不该露面。藏在屏幕外，那一下就没任何人看到。
-     */
-    crate::window::park();
 
     // SAFETY: 句柄来自 winit，在窗口存活期间有效
     unsafe {
