@@ -19,7 +19,6 @@ mod port;
 mod process_ext;
 mod service;
 mod single_instance;
-mod theme;
 mod tray;
 mod ui;
 mod window;

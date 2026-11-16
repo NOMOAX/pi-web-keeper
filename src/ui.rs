@@ -49,7 +49,7 @@ pub fn run(handle: Handle, start_on_launch: bool) -> eframe::Result<()> {
         Box::new(move |creation| {
             let context = &creation.egui_ctx;
 
-            crate::theme::install(context);
+            context.set_visuals(egui::Visuals::dark());
 
             font::install(context);
 
