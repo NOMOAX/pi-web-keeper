@@ -251,6 +251,12 @@ impl eframe::App for KeeperApp {
                     let mut cleared = false;
 
                     response.context_menu(|ui| {
+                        /*
+                         * 菜单项默认只留 4×1 的内边距，点上去就像在点文字本身。
+                         * 这里放大到 14×7：菜单是鼠标操作，目标得有面积。
+                         */
+                        ui.spacing_mut().button_padding = egui::vec2(14.0, 7.0);
+
                         if ui.button("清空").clicked() {
                             cleared = true;
                             ui.close_menu();
