@@ -32,8 +32,11 @@ pub fn run(handle: Handle, start_on_launch: bool) -> eframe::Result<()> {
             // 只去掉最大化按钮，窗口仍可缩放 —— 与 XAML 版清 WS_MAXIMIZEBOX 是同一件事
             .with_maximize_button(false)
             .with_title("Pi Web Keeper")
-            // 启动流程跑完之前不露面：成功的话这个窗口自始至终没见过，
-            // 启动时窗口本来就没显示过，失败时它自己会出来
+            /*
+             * 创建时不显示，但这不是「启动期间不露面」——
+             * eframe 画完第一帧就会把它显示出来，不管这里传什么。
+             * 这一句只是压掉首帧之前那块白底。
+             */
             .with_visible(false),
         centered: true,
         ..Default::default()

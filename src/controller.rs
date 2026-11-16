@@ -212,7 +212,7 @@ fn set_window_visible(visible: bool) {
 /// 为什么不能直接藏：eframe 在第一帧画完之后才把窗口显示出来（`epi_integration.rs`
 /// 里那句 `set_visible(true)`，不管创建时传的 `visible(false)`）。
 /// 服务如果比第一帧就绪得还快（实测过这种配置），提前藏会被它随后盖掉，
-/// 窗口就会一直留在屏幕上。_这里等它露过一次再藏，就不用每帧去拉状态了。
+/// 窗口就会一直留在屏幕上。等它露过一次再藏，就不用每帧去拉状态。
 fn hide_after_it_appears() {
     let deadline = std::time::Instant::now() + std::time::Duration::from_millis(1500);
 
@@ -253,8 +253,9 @@ fn toggle_service(handle: &Handle, keeper: Option<&ServiceKeeper>) {
 /// 启动服务。
 ///
 /// 成功就收起启动器（用户接下来要看的是应用窗口，不是日志），
-/// 失败就把它留在屏幕上（报错得看得见）—— 启动时走的就是同一条路，
-/// 只是那时窗口还没显示过，收起来等于什么都没发生。
+/// 失败就把它留在屏幕上（报错得看得见）。
+///
+/// 启动时走的就是同一条路：那时窗口正显示着，收起来的时机就是「要打开应用窗口了」。
 fn start_service(handle: &Handle, keeper: Option<&ServiceKeeper>) {
     let Some(keeper) = keeper else {
         return;
