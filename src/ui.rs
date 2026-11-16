@@ -18,6 +18,9 @@ use crate::font;
 const BUTTON_SIZE: [f32; 2] = [80.0, 40.0];
 const BUTTON_SPACING: f32 = 8.0;
 
+/// 消息框里文字与框边的距离。横向用它，纵向只用一半 —— 文字行本身自带上方留白。
+const BOX_PADDING: f32 = 8.0;
+
 /// 跑界面主循环。`start_on_launch` 为假表示这次是「以普通方式启动」。
 pub fn run(handle: Handle, start_on_launch: bool) -> eframe::Result<()> {
     let options = eframe::NativeOptions {
@@ -228,46 +231,71 @@ impl eframe::App for KeeperApp {
                 }
             });
 
-            // 留给消息框的高度：面板里剩下的全部（在外面量，见下面的注释）
-            let log_height = ui.available_height();
+            /*
+             * 消息框的框由这里自己画，不用 `TextEdit` 自带的那个。
+             *
+             * 原因：`TextEdit` 的高度只能是整数行（`desired_rows`），而面板剩下的高度几乎
+             * 不会是行高的整数倍，差额就落成了多出来的下边距 —— 实测底部 24 像素、左右各
+             * 16 像素。自己画框，框正好等于剩下的那一块，四边就都是 8。
+             *
+             * 里面的 `TextEdit` 因此关掉自带的框，只负责文字与滚动。
+             */
+            let box_size = ui.available_size();
+            let (box_rect, _) = ui.allocate_exact_size(box_size, egui::Sense::hover());
 
-            let clear = egui::ScrollArea::vertical()
-                .id_salt("message-box")
-                .stick_to_bottom(true)
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    /*
-                     * 消息框要填满面板剩下的那一块，而不是固定多少行然后下面留一片空白。
-                     * 行数按进 ScrollArea 之前的高度算 —— 进去之后 available_height
-                     * 就变成内容高度了，量到的是它自己。
-                     * 内容超过时由 ScrollArea 接管，新的一行进来会粘在底部。
-                     */
-                    let row_height = ui.text_style_height(&egui::TextStyle::Monospace).max(1.0);
-                    let rows = ((log_height / row_height).floor() as usize).max(1);
+            let inactive = ui.visuals().widgets.inactive.clone();
 
-                    let response = ui.add(
-                        egui::TextEdit::multiline(&mut self.log_view)
-                            .font(egui::TextStyle::Monospace)
-                            .desired_width(f32::INFINITY)
-                            .desired_rows(rows),
-                    );
+            ui.painter().rect(
+                box_rect,
+                inactive.rounding,
+                ui.visuals().extreme_bg_color,
+                inactive.bg_stroke,
+            );
 
-                    let mut cleared = false;
+            let text_rect = box_rect.shrink2(egui::vec2(BOX_PADDING, BOX_PADDING / 2.0));
 
-                    response.context_menu(|ui| {
-                        /*
-                         * 菜单项默认只留 4×1 的内边距，点上去就像在点文字本身。
-                         * 这里放大到 14×7：菜单是鼠标操作，目标得有面积。
-                         */
-                        ui.spacing_mut().button_padding = egui::vec2(14.0, 7.0);
+            let clear = ui
+                .allocate_new_ui(egui::UiBuilder::new().max_rect(text_rect), |ui| {
+                    egui::ScrollArea::vertical()
+                        .id_salt("message-box")
+                        .stick_to_bottom(true)
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            /*
+                             * 行数按这块的高度算：少了框里会留白，多了 `ScrollArea` 接管。
+                             * 内容超过时也由它接管，新的一行进来会粘在底部。
+                             */
+                            let row_height =
+                                ui.text_style_height(&egui::TextStyle::Monospace).max(1.0);
+                            let rows =
+                                ((ui.available_height() / row_height).floor() as usize).max(1);
 
-                        if ui.button("清空").clicked() {
-                            cleared = true;
-                            ui.close_menu();
-                        }
-                    });
+                            let response = ui.add(
+                                egui::TextEdit::multiline(&mut self.log_view)
+                                    .frame(false)
+                                    .font(egui::TextStyle::Monospace)
+                                    .desired_width(f32::INFINITY)
+                                    .desired_rows(rows),
+                            );
 
-                    cleared
+                            let mut cleared = false;
+
+                            response.context_menu(|ui| {
+                                /*
+                                 * 菜单项默认只留 4×1 的内边距，点上去就像在点文字本身。
+                                 * 这里放大到 14×7：菜单是鼠标操作，目标得有面积。
+                                 */
+                                ui.spacing_mut().button_padding = egui::vec2(14.0, 7.0);
+
+                                if ui.button("清空").clicked() {
+                                    cleared = true;
+                                    ui.close_menu();
+                                }
+                            });
+
+                            cleared
+                        })
+                        .inner
                 })
                 .inner;
 
