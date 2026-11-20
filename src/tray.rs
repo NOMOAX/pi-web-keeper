@@ -116,7 +116,12 @@ fn run(handle: Handle) {
                 ..
             } = event
             {
-                handle.send(Command::ToggleWindow);
+                /*
+                 * 直接开合窗口，不发给控制器：控制器会被一次启动、一次更新占住几十秒，
+                 * 那段时间它不读通道，命令就得排队 —— 用户点托盘图标会变成「点了没反应」。
+                 * 窗口的可见性本来也不归控制器管（见 `window.rs`）。
+                 */
+                crate::window::toggle();
             }
         }
 
@@ -141,12 +146,12 @@ fn sync_menu(
 ) {
     let shared = handle.lock();
 
-    let service_text = if shared.busy {
-        if shared.updating {
-            "正在更新"
-        } else {
-            "正在启动"
-        }
+    /*
+     * 更新期间文字不动，只置灰：一次更新要跑好几分钟，把服务项写成「正在更新」
+     * 既没说明服务现在是什么状态，又让菜单看起来在闪 —— 置灰已经说明了「现在点不了」。
+     */
+    let service_text = if shared.busy && !shared.updating {
+        "正在启动"
     } else if shared.config_error.is_some() {
         "启动"
     } else if shared.listening {
@@ -158,7 +163,6 @@ fn sync_menu(
     service_item.set_text(service_text);
     service_item.set_enabled(!shared.busy && shared.config_error.is_none());
 
-    update_item.set_text(if shared.updating { "正在更新" } else { "更新" });
     update_item.set_enabled(!shared.busy && !shared.updating && !shared.listening);
 
     // 更新期间一律置灰：更新没有中途取消这条路，半途走掉会留下一个替换了一半的包

@@ -10,6 +10,10 @@
 //!   - 界面线程只读 [`Shared`]、只发命令，从不阻塞。
 //!
 //! 于是窗口画不画，与服务跑不跑，互不相干。
+//!
+//! 窗口的显示与隐藏**不经过这里**：控制器会被一次启动、一次更新占住几十秒，
+//! 那段时间里它不读命令通道，任何排队的命令都要等它忙完 —— 包括「点托盘图标把窗口叫出来」。
+//! 那几条路径各调各的，直接走 `window.rs`（见 `tray.rs` 与 `main.rs`）。
 
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
@@ -48,12 +52,6 @@ pub enum Command {
 
     /// 停服务然后退出。
     Exit,
-
-    /// 把窗口从托盘里叫出来（第二个实例来敲门时用，不是开关）。
-    ShowWindow,
-
-    /// 托盘左键：窗口在屏幕上就收起，藏着就拿出来。
-    ToggleWindow,
 }
 
 /// 后台与界面共享的状态。两边都只做「短锁 + 拷贝」。
@@ -167,21 +165,6 @@ fn run(handle: Handle, config: Option<KeeperConfig>, inbox: Receiver<Command>) {
             Ok(Command::Update) => {
                 run_update(&handle, keeper.as_ref());
             }
-            Ok(Command::ShowWindow) => {
-                /*
-                 * 直接调 Win32：窗口藏起来之后界面不再重绘，置标志没人读（见 `window.rs`）。
-                 * 这个动作**不是**开关：「再双击一次 exe」的语义是「把窗口给我看」，
-                 * 而不是「窗口开着就关掉」—— XAML 版那一条走的也是 `ShowFromTray`。
-                 */
-                set_window_visible(true);
-            }
-            Ok(Command::ToggleWindow) => {
-                /*
-                 * 托盘左键是开关，与 XAML 版一致
-                 * （那边是 `IsVisible && WindowState != Minimized` 时就隐藏）。
-                 */
-                set_window_visible(!crate::window::is_visible());
-            }
             Err(RecvTimeoutError::Disconnected) => return,
             Err(RecvTimeoutError::Timeout) => {}
         }
@@ -195,15 +178,6 @@ fn run(handle: Handle, config: Option<KeeperConfig>, inbox: Receiver<Command>) {
 
             handle.lock().listening = listening;
         }
-    }
-}
-
-/// 把窗口设到指定可见状态。
-fn set_window_visible(visible: bool) {
-    if visible {
-        crate::window::show();
-    } else {
-        crate::window::hide();
     }
 }
 
@@ -289,7 +263,7 @@ fn start_service(handle: &Handle, keeper: Option<&ServiceKeeper>) {
     if matches!(outcome, Ok(Ok(()))) {
         hide_after_it_appears();
     } else {
-        set_window_visible(true);
+        crate::window::show();
     }
 }
 

@@ -158,12 +158,13 @@ impl eframe::App for KeeperApp {
             crate::window::hide();
         }
 
-        let service_label = if busy {
-            if updating {
-                "正在更新"
-            } else {
-                "正在启动"
-            }
+        /*
+         * 更新期间文字不动，只有「启动」与「停止」两种：一次更新要跑好几分钟，
+         * 把这一格写成「正在更新」既没说明服务现在是什么状态，又让按钮看起来在跳。
+         * 置灰已经说明了「现在点不了」。
+         */
+        let service_label = if busy && !updating {
+            "正在启动"
         } else if !has_config {
             "启动"
         } else if listening {
@@ -270,13 +271,29 @@ impl eframe::App for KeeperApp {
                             let rows =
                                 ((ui.available_height() / row_height).floor() as usize).max(1);
 
-                            let response = ui.add(
-                                egui::TextEdit::multiline(&mut self.log_view)
-                                    .frame(false)
-                                    .font(egui::TextStyle::Monospace)
-                                    .desired_width(f32::INFINITY)
-                                    .desired_rows(rows),
-                            );
+                            let response = ui
+                                .scope(|ui| {
+                                    /*
+                                     * 不要那根闪烁的输入光标。
+                                     *
+                                     * 这个框是可选的、不可改的，`interactive(false)` 会把选择也一起
+                                     * 关掉（见 AGENTS.md），所以留着 `TextEdit`、只把光标画成零宽：
+                                     * 光标是一条 0 宽线段，等于不画。`blink` 一并关掉 ——
+                                     * 它每次闪烁都会请求重绘，而这个框没有东西需要刷新。
+                                     */
+                                    let cursor = &mut ui.visuals_mut().text_cursor;
+                                    cursor.stroke = egui::Stroke::NONE;
+                                    cursor.blink = false;
+
+                                    ui.add(
+                                        egui::TextEdit::multiline(&mut self.log_view)
+                                            .frame(false)
+                                            .font(egui::TextStyle::Monospace)
+                                            .desired_width(f32::INFINITY)
+                                            .desired_rows(rows),
+                                    )
+                                })
+                                .inner;
 
                             let mut cleared = false;
 

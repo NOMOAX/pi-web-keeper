@@ -103,11 +103,7 @@ fn main() {
      * 回调在后台线程上，而且可能发生在窗口已经藏进托盘、界面不再重绘的时候，
      * 所以这条命令由控制器线程直接调 Win32，不经过界面帧（见 `window.rs`）。
      */
-    instance.listen_for_activation({
-        let handle = handle.clone();
-
-        move || handle.send(Command::ShowWindow)
-    });
+    instance.listen_for_activation(|| crate::window::show());
 
     if let Err(error) = ui::run(handle, start_on_launch) {
         // 窗口起不来就没有界面了；这行在 windows_subsystem 下看不见，但至少不会静默
