@@ -1,6 +1,6 @@
 [package]
 name         = "pi-web-keeper"
-version      = "0.4.0"
+version      = "0.4.1"
 edition      = "2021"
 rust-version = "1.75"
 description  = "Windows 启动器：托管唯一一个本地 Pi Web 服务"
