@@ -21,6 +21,15 @@ const BUTTON_SPACING: f32 = 8.0;
 /// 消息框里文字与框边的距离。横向用它，纵向只用一半 —— 文字行本身自带上方留白。
 const BOX_PADDING: f32 = 8.0;
 
+/// 主题按钮的尺寸。比四个大按钮窄、也矮一些 —— 它们是设置，不是主操作。
+const THEME_BUTTON_SIZE: [f32; 2] = [44.0, 28.0];
+
+/// 「跟随系统」时多久重读一次系统主题。
+///
+/// Windows 换主题不会通知应用，只能自己看。一秒一次足够：人手点完系统设置，
+/// 再切回这个窗口，看到的已经是新颜色。
+const SYSTEM_THEME_POLL: std::time::Duration = std::time::Duration::from_secs(1);
+
 /// 跑界面主循环。`start_on_launch` 为假表示这次是「以普通方式启动」。
 pub fn run(handle: Handle, start_on_launch: bool) -> eframe::Result<()> {
     let options = eframe::NativeOptions {
@@ -52,7 +61,8 @@ pub fn run(handle: Handle, start_on_launch: bool) -> eframe::Result<()> {
         Box::new(move |creation| {
             let context = &creation.egui_ctx;
 
-            context.set_visuals(egui::Visuals::dark());
+            // 每次启动都回到「跟随系统」：这个选择只存在内存里（见 `theme.rs`）
+            let initial_dark = crate::theme::apply(context, crate::theme::Preference::default());
 
             font::install(context);
 
@@ -60,7 +70,7 @@ pub fn run(handle: Handle, start_on_launch: bool) -> eframe::Result<()> {
             // 系统已经把最大化按钮画上去了，清掉样式位也只会把它画成灰的
             prepare_window(&creation, context.clone());
 
-            Ok(Box::new(KeeperApp::new(handle, start_on_launch)))
+            Ok(Box::new(KeeperApp::new(handle, start_on_launch, initial_dark)))
         }),
     )
 }
@@ -80,15 +90,27 @@ struct KeeperApp {
 
     /// 还没执行过的「启动时自动启动服务」。
     start_on_launch: bool,
+
+    /// 用户选的界面主题。
+    theme: crate::theme::Preference,
+
+    /// 当前实际用的是不是深色。用来判断「要不要重装主题」。
+    is_dark: bool,
+
+    /// 上次向系统要主题的时间。`None` 表示下一帧就去看。
+    system_theme_checked_at: Option<std::time::Instant>,
 }
 
 impl KeeperApp {
-    fn new(handle: Handle, start_on_launch: bool) -> Self {
+    fn new(handle: Handle, start_on_launch: bool, is_dark: bool) -> Self {
         Self {
             handle,
             log_view: String::new(),
             log_revision: 0,
             start_on_launch,
+            theme: crate::theme::Preference::default(),
+            is_dark,
+            system_theme_checked_at: None,
         }
     }
 
@@ -126,6 +148,35 @@ impl eframe::App for KeeperApp {
         };
 
         self.sync_log(&lines, revision);
+
+        /*
+         * 主题。用户选了哪一档就是哪一档；「系统」那一档要隔一会儿再看一次系统设置 ——
+         * Windows 不会通知我们它换主题了。
+         */
+        let desired_dark = match self.theme {
+            crate::theme::Preference::Dark => true,
+            crate::theme::Preference::Light => false,
+            crate::theme::Preference::System => {
+                let stale = self
+                    .system_theme_checked_at
+                    .map_or(true, |checked| checked.elapsed() >= SYSTEM_THEME_POLL);
+
+                if stale {
+                    self.system_theme_checked_at = Some(std::time::Instant::now());
+
+                    crate::theme::system_is_dark()
+                } else {
+                    self.is_dark
+                }
+            }
+        };
+
+        if desired_dark != self.is_dark {
+            self.is_dark = crate::theme::apply(context, self.theme);
+
+            // 换主题要立刻看到，别等下一次 100 毫秒的刷新
+            context.request_repaint();
+        }
 
         if quit {
             context.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -179,6 +230,7 @@ impl eframe::App for KeeperApp {
         let can_leave = !updating && !exiting;
 
         let mut pressed: Option<Command> = None;
+        let mut theme_changed = false;
 
         egui::CentralPanel::default().show(context, |ui| {
             ui.spacing_mut().item_spacing = egui::vec2(BUTTON_SPACING, BUTTON_SPACING);
@@ -229,6 +281,36 @@ impl eframe::App for KeeperApp {
                     .clicked()
                 {
                     pressed = Some(Command::Exit);
+                }
+
+                /*
+                 * 占位：把三个主题按钮推到右端。宽度是「剩下的全部减去它们要占的地方」，
+                 * 窗口拉伸时跟着变，不会把主题按钮挤出去。
+                 */
+                let reserved =
+                    THEME_BUTTON_SIZE[0] * 3.0 + BUTTON_SPACING * 3.0;
+
+                ui.allocate_space(egui::vec2(
+                    (ui.available_width() - reserved).max(0.0),
+                    0.0,
+                ));
+
+                for preference in crate::theme::Preference::ALL {
+                    let selected = self.theme == preference;
+
+                    if ui
+                        .add_sized(
+                            THEME_BUTTON_SIZE,
+                            egui::Button::new(preference.label()).selected(selected),
+                        )
+                        .clicked()
+                    {
+                        self.theme = preference;
+
+                        // 下一帧重新判断深浅；换档之后立刻去看系统设置
+                        self.system_theme_checked_at = None;
+                        theme_changed = true;
+                    }
                 }
             });
 
@@ -325,6 +407,11 @@ impl eframe::App for KeeperApp {
 
         if let Some(command) = pressed {
             self.handle.send(command);
+        }
+
+        // 换了主题就别等下一次刷新，这一帧之后立刻重画
+        if theme_changed {
+            context.request_repaint();
         }
 
         // 控制器每 300 毫秒刷新一次状态；这里按帧轮询，比它稍快一点就够了
