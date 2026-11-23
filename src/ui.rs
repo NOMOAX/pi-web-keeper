@@ -94,8 +94,14 @@ struct KeeperApp {
     /// 用户选的界面主题。
     theme: crate::theme::Preference,
 
-    /// 当前实际用的是不是深色。用来判断「要不要重装主题」。
+    /// 窗口内容当前实际用的是不是深色。用来判断「要不要重装主题」。
     is_dark: bool,
+
+    /// 「系统」那一档上次读到的应用模式。到点才刷新。
+    system_is_dark: bool,
+
+    /// 标题栏当前实际用的是不是深色。它跟 Windows 模式，与 `theme` 无关。
+    title_bar_dark: bool,
 
     /// 上次向系统要主题的时间。`None` 表示下一帧就去看。
     system_theme_checked_at: Option<std::time::Instant>,
@@ -103,6 +109,11 @@ struct KeeperApp {
 
 impl KeeperApp {
     fn new(handle: Handle, start_on_launch: bool, is_dark: bool) -> Self {
+        let title_bar_dark = crate::theme::windows_mode_is_dark();
+
+        // 标题栏是 DWM 画的，egui 不会替我们设，创建时就得对上
+        crate::window::set_title_bar_dark(title_bar_dark);
+
         Self {
             handle,
             log_view: String::new(),
@@ -110,6 +121,8 @@ impl KeeperApp {
             start_on_launch,
             theme: crate::theme::Preference::default(),
             is_dark,
+            system_is_dark: is_dark,
+            title_bar_dark,
             system_theme_checked_at: None,
         }
     }
@@ -150,29 +163,46 @@ impl eframe::App for KeeperApp {
         self.sync_log(&lines, revision);
 
         /*
-         * 主题。用户选了哪一档就是哪一档；「系统」那一档要隔一会儿再看一次系统设置 ——
-         * Windows 不会通知我们它换主题了。
+         * 主题分两件事，彼此独立：
+         *
+         *   - 窗口内容：跟用户选的那一档；选「系统」时读 **应用模式**。
+         *   - 标题栏与最小化/最大化/关闭按钮：永远跟 **Windows 模式**，
+         *     与用户在这里选了什么无关（见 `theme.rs` 开头）。
+         *
+         * Windows 换主题不会通知应用，所以隔一秒去看一次 —— 人手点完系统设置、
+         * 再切回这个窗口，看到的已经是新颜色。
          */
+        let due = self
+            .system_theme_checked_at
+            .map_or(true, |checked| checked.elapsed() >= SYSTEM_THEME_POLL);
+
+        if due {
+            self.system_theme_checked_at = Some(std::time::Instant::now());
+
+            let title_bar_dark = crate::theme::windows_mode_is_dark();
+
+            if title_bar_dark != self.title_bar_dark {
+                self.title_bar_dark = title_bar_dark;
+                crate::window::set_title_bar_dark(title_bar_dark);
+
+                context.request_repaint();
+            }
+
+            // 只有「系统」这一档需要重读应用模式；另两档是固定值
+            if self.theme == crate::theme::Preference::System {
+                self.system_is_dark = crate::theme::system_is_dark();
+            }
+        }
+
         let desired_dark = match self.theme {
             crate::theme::Preference::Dark => true,
             crate::theme::Preference::Light => false,
-            crate::theme::Preference::System => {
-                let stale = self
-                    .system_theme_checked_at
-                    .map_or(true, |checked| checked.elapsed() >= SYSTEM_THEME_POLL);
-
-                if stale {
-                    self.system_theme_checked_at = Some(std::time::Instant::now());
-
-                    crate::theme::system_is_dark()
-                } else {
-                    self.is_dark
-                }
-            }
+            crate::theme::Preference::System => self.system_is_dark,
         };
 
         if desired_dark != self.is_dark {
-            self.is_dark = crate::theme::apply(context, self.theme);
+            self.is_dark = desired_dark;
+            crate::theme::apply(context, self.theme);
 
             // 换主题要立刻看到，别等下一次 100 毫秒的刷新
             context.request_repaint();

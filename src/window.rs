@@ -5,6 +5,9 @@
 //! 实测确认过：服务启动成功、窗口藏起来之后，第二个实例的唤醒信号确实到达，窗口却再也不出来。
 //!
 //! 句柄与 `egui::Context` 在窗口创建时记下来，托盘线程和单实例监听线程都能用。
+//!
+//! 标题栏的深浅也在这里：那是 DWM 画的非客户区，egui 完全不参与，
+//! 而它跟随的是 **Windows 模式**，与窗口内容跟随的「应用模式」是两回事。
 
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::OnceLock;
@@ -61,6 +64,36 @@ pub fn hide() {
     // SAFETY: 同上
     unsafe {
         let _ = ShowWindow(window, SW_HIDE);
+    }
+}
+
+/// 把标题栏（标题、最小化/最大化/关闭按钮）画成深色或浅色。
+///
+/// 为什么需要显式指定：Windows 11 默认让标题栏跟「应用模式」，而这里要的是跟 **Windows 模式**
+/// —— 后者管的是标题栏、开始菜单与任务栏。两者在系统设置里可以各自独立，所以必须自己定。
+///
+/// `DWMWA_USE_IMMERSIVE_DARK_MODE` 的编号在 Windows 10 1809 是 19、20H1 起是 20，
+/// 两个都发一遍：版本判断不值得写，错的那个只会返回失败，不影响对的。
+pub fn set_title_bar_dark(dark: bool) {
+    use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWINDOWATTRIBUTE};
+
+    let Some(window) = handle() else {
+        return;
+    };
+
+    let value = windows::Win32::Foundation::BOOL::from(dark);
+    let size = std::mem::size_of::<windows::Win32::Foundation::BOOL>() as u32;
+
+    // SAFETY: 句柄在窗口存活期间有效；指针指向一个就地变量，长度与类型一致
+    unsafe {
+        for attribute in [DWMWINDOWATTRIBUTE(20), DWMWINDOWATTRIBUTE(19)] {
+            let _ = DwmSetWindowAttribute(
+                window,
+                attribute,
+                &raw const value as *const core::ffi::c_void,
+                size,
+            );
+        }
     }
 }
 

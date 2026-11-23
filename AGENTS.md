@@ -57,6 +57,10 @@ Starting the exe is starting the service, and the window is the progress display
 
 Four buttons — the service button (`启动`/`停止`), the update button, `重启程序`, `退出` — on one row, then the message box filling the rest. All four are a fixed 80x40 (`min_size`), a size the user chose by eye from screenshots: the literal is the decision, not a value to re-derive. `重启程序` fits that width because it is four characters; the originally asked-for `重新启动此程序` did not.
 
+To the right of them, separated by an allocated spacer, is one 44x28 theme button that cycles 系统 → 深色 → 浅色. Its label *is* the current mode, so one button says both "this is now" and "click for the next"; three buttons with a selected highlight were tried first and said less. Smaller than the four, because it is a setting rather than an action.
+
+Theme is two independent things, and the split is the point (see [The theme](#the-theme)).
+
 The message box gets the leftover height, and its row count is computed from `available_height` measured *outside* the `ScrollArea` — inside, it reports the content height and the box collapses.
 
 The message box is an egui `TextEdit` used read-only. `interactive(false)` is not the way: it also kills selection, and this box is meant to be selectable. Instead the visible string is a shadow copy rebuilt from the shared log whenever `log_revision` changes, so anything typed is overwritten on the next frame. The blinking caret is suppressed by drawing it zero-width (`text_cursor.stroke = Stroke::NONE`) with blinking off inside a scope around the widget: a caret would promise an editing that never happens, and a blinking one requests a repaint every half second for nothing. Its right-click menu holds one item, `清空`, padded 14x7 because a menu is a mouse target; there is no copy, cut or paste, and the padding is set inside that closure only, so the hand-sized window buttons cannot move with it. `清空` writes `----- Message cleared. -----` into the log itself rather than into the view, so the placeholder survives the next rebuild and an empty box cannot be confused with a box that was never written to.
@@ -64,6 +68,19 @@ The message box is an egui `TextEdit` used read-only. `interactive(false)` is no
 The log is capped at 2000 lines. The cap keeps the per-frame layout cost constant, not the memory: the whole box is laid out every frame.
 
 The font comes from `src/font.rs` and `assets/fonts/NotoSansSC-Regular.otf`: one embedded face, installed at the front of both the `Proportional` and `Monospace` families, with egui's own fonts behind it as a fallback for what Source Han Sans lacks. There is no runtime search and no candidate list — the font is part of the executable, so the same exe looks the same on every machine, and swapping it is a rebuild. `FontData::index` would pick a face inside a collection if one were ever embedded instead.
+
+## The theme
+
+Two independent ideas share the word "theme", and keeping them apart is the whole design.
+
+- **Window content** follows the user's choice, cycled by the button right of `退出`: 系统, 深色, 浅色. Both palettes are egui's own (`Visuals::dark()`/`light()`) — there is no palette of this program's, which is what makes switching cheap and keeps the widgets looking like the framework's intent.
+- **The title bar** — caption, minimize, maximize, close — follows the *Windows* mode and ignores that choice entirely. It is drawn by DWM, so `window::set_title_bar_dark` sets `DWMWA_USE_IMMERSIVE_DARK_MODE` (both attribute 20 and 19, since the id changed in 20H1 and querying the build number is not worth it). Without it Windows 11 defaults the title bar to the *app* mode, which would tie it to the wrong one of the two.
+
+The registry carries both, side by side under `HKCU\...\Themes\Personalize`: `AppsUseLightTheme` is the app mode, `SystemUsesLightTheme` is the Windows mode, each 0 = dark. They are separate keys because Windows lets a user pick them independently, and this window is one of the places where that shows.
+
+Neither is pushed at us: Windows announces the change to nobody, so the UI thread re-reads both once a second (`SYSTEM_THEME_POLL`) while it is running. A reading failure is treated as dark in both cases — the program has always looked that way, and the usual cause is a registry layout we do not recognise, where guessing either way is a guess.
+
+The choice lives in memory only; every launch starts at 系统. A launcher this small has no preference worth a file, and starting from the system setting means the window is never a surprise on first run.
 
 ## The tray icon
 
