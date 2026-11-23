@@ -27,8 +27,14 @@ pub enum Preference {
 }
 
 impl Preference {
-    /// 三档的顺序就是按钮从左到右的顺序。
-    pub const ALL: [Self; 3] = [Self::System, Self::Dark, Self::Light];
+    /// 下一次点击之后该是哪一档：系统 → 深色 → 浅色 → 系统。
+    pub fn next(self) -> Self {
+        match self {
+            Self::System => Self::Dark,
+            Self::Dark => Self::Light,
+            Self::Light => Self::System,
+        }
+    }
 
     /// 按钮上的字。
     pub fn label(self) -> &'static str {

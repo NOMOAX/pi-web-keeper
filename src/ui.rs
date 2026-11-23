@@ -284,33 +284,31 @@ impl eframe::App for KeeperApp {
                 }
 
                 /*
-                 * 占位：把三个主题按钮推到右端。宽度是「剩下的全部减去它们要占的地方」，
-                 * 窗口拉伸时跟着变，不会把主题按钮挤出去。
+                 * 占位：把主题按钮推到右端。宽度是「剩下的全部减去它要占的地方」，
+                 * 窗口拉伸时跟着变，不会把它挤出去。
                  */
-                let reserved =
-                    THEME_BUTTON_SIZE[0] * 3.0 + BUTTON_SPACING * 3.0;
-
                 ui.allocate_space(egui::vec2(
-                    (ui.available_width() - reserved).max(0.0),
+                    (ui.available_width() - THEME_BUTTON_SIZE[0] - BUTTON_SPACING).max(0.0),
                     0.0,
                 ));
 
-                for preference in crate::theme::Preference::ALL {
-                    let selected = self.theme == preference;
+                /*
+                 * 一个按钮，点一下换一档：系统 → 深色 → 浅色 → 系统。
+                 * 按钮上的字就是当前这一档，所以它同时说明了「现在是什么」。
+                 */
+                if ui
+                    .add_sized(
+                        THEME_BUTTON_SIZE,
+                        egui::Button::new(self.theme.label()),
+                    )
+                    .on_hover_text("主题：系统 / 深色 / 浅色，点一下换一档")
+                    .clicked()
+                {
+                    self.theme = self.theme.next();
 
-                    if ui
-                        .add_sized(
-                            THEME_BUTTON_SIZE,
-                            egui::Button::new(preference.label()).selected(selected),
-                        )
-                        .clicked()
-                    {
-                        self.theme = preference;
-
-                        // 下一帧重新判断深浅；换档之后立刻去看系统设置
-                        self.system_theme_checked_at = None;
-                        theme_changed = true;
-                    }
+                    // 下一帧重新判断深浅；换档之后立刻去看系统设置
+                    self.system_theme_checked_at = None;
+                    theme_changed = true;
                 }
             });
 
